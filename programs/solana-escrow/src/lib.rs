@@ -14,6 +14,8 @@ pub mod solana_escrow {
 
     pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
         msg!("Greetings from: {:?}", ctx.program_id);
+
+        instructions::make_offer();
         Ok(())
     }
 }

@@ -1,5 +1,8 @@
 use anchor_lang::prelude::*;
 
+pub mod instructions;
+use instructions::*;
+
 pub mod states;
 pub mod errors;
 
@@ -11,6 +14,8 @@ pub mod solana_escrow {
 
     pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
         msg!("Greetings from: {:?}", ctx.program_id);
+
+        instructions::make_offer();
         Ok(())
     }
 }

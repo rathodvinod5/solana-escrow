@@ -1,4 +1,10 @@
 use anchor_lang::prelude::*;
+use anchor_spl::associated_token::AssociatedToken;
+use anchor_spl::token::{ Mint, Token, TokenAccount, TransferChecked, transfer_checked };
+// use anchor_spl::token_interface::{
+//     transfer_checked, Mint, TokenAccount, TokenInterface,
+//     TransferChecked,
+// };
 
 use crate::states::EscrowOffer;
 use crate::errors::EscrowError;
@@ -10,14 +16,23 @@ pub fn make_offer(
     token_b_requested_amount: u64
 ) -> Result<()> {
     let maker = &ctx.accounts.maker;
-    let token_mint_a = &ctx.account.token_mint_a;
-    let token_mint_b = &ctx.account.token_mint_b;
+    let token_mint_a = &ctx.accounts.token_mint_a;
+    let token_mint_b = &ctx.accounts.token_mint_b;
     let escrow_offer = &mut ctx.accounts.escrow_offer;
-    let vaut = &ctx.accounts.vault;
+    let vault = &ctx.accounts.vault;
+    let token_program = &ctx.accounts.token_program;
 
     require_gt!(token_a_transfer_amount, 0, EscrowError::InvalidAmount);
     require_gt!(token_b_requested_amount, 0, EscrowError::InvalidAmount);
 
+    let cpi_accounts = TransferChecked {
+        from: ctx.accounts.maker_ata_for_token_mint_a.to_account_info(),
+        to: vault.to_account_info(),
+        mint: token_mint_a.to_account_info(),
+        authority: maker.to_account_info()
+    };
+    let cpi_context = CpiContext::new(token_program.to_account_info(), cpi_accounts);
+    transfer_checked(cpi_context, token_a_transfer_amount, token_mint_a.decimals);
 
     escrow_offer.set_inner(EscrowOffer {
         id,
@@ -32,6 +47,7 @@ pub fn make_offer(
 }
 
 #[derive(Accounts)]
+#[instruction(id: u64)]
 pub struct MakeOffer<'info> {
     #[account(mut)]
     pub maker: Signer<'info>,
@@ -54,12 +70,12 @@ pub struct MakeOffer<'info> {
         init,
         payer = maker,
         space = 8 + EscrowOffer::INIT_SPACE,
-        seeds = [b"offer", maker.key().as_ref(), id.to_le_bytes()],
+        seeds = [b"offer", maker.key().as_ref(), &id.to_le_bytes()],
         bump
     )]
     pub escrow_offer: Account<'info, EscrowOffer>,
 
-    #[accout(
+    #[account(
         init,
         payer = maker,
         associated_token::mint = token_mint_a,

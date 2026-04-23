@@ -7,5 +7,11 @@ pub enum EscrowError {
     #[msg("Invalid amount")]
     InvalidAmount,
     #[msg("Insufficient Amount")]
-    InsufficientAmount
+    InsufficientAmount,
+    #[msg("Invalid tokenMint A")]
+    InvalidTokenMintA,
+    #[msg("Invalid tokenMint B")]
+    InvalidTokenMintB,
+    #[msg("Invalid maker")]
+    InvalidMaker,
 }

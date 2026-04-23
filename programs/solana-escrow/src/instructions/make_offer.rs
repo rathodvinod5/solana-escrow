@@ -1,10 +1,10 @@
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
-// use anchor_spl::token::{Token, TransferChecked};
-use anchor_spl::token_interface::{
-    close_account, transfer_checked, CloseAccount, Mint, TokenAccount, TokenInterface,
-    TransferChecked,
-};
+use anchor_spl::token::{ Mint, Token, TokenAccount, TransferChecked, transfer_checked };
+// use anchor_spl::token_interface::{
+//     transfer_checked, Mint, TokenAccount, TokenInterface,
+//     TransferChecked,
+// };
 
 use crate::states::EscrowOffer;
 use crate::errors::EscrowError;
@@ -84,7 +84,7 @@ pub struct MakeOffer<'info> {
     )]
     pub vault: Account<'info, TokenAccount>,
 
-    pub token_program: Program<'info, TokenInterface>,
+    pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
     pub associated_token_program: Program<'info, AssociatedToken>
 }

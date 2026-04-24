@@ -59,7 +59,7 @@ pub fn take_offer(ctx: Context<TakeOffer>, id: u64) -> Result<()> {
         token_mint_b.decimals
     )?;
 
-    // 3. close escrow_offer account
+    // 3. close vault account
     let cpi_accounts_for_close_escrow = CloseAccount {
         account: vault.to_account_info(),
         destination: escrow_offer.to_account_info(),

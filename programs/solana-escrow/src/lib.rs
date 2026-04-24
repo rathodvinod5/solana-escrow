@@ -12,13 +12,20 @@ declare_id!("2wn5RrK2qCVFGZtrzqqe4kd9ydMzCuvneMeodN82u6DA");
 pub mod solana_escrow {
     use super::*;
 
-    pub fn initialize(ctx: Context<MakeOffer>, id: u64, token_a_transfer_amount: u64,
-    token_b_requested_amount: u64) -> Result<()> {
+    pub fn init_offer(
+        ctx: Context<MakeOffer>, 
+        id: u64, 
+        token_a_transfer_amount: u64,
+        token_b_requested_amount: u64
+    ) -> Result<()> {
         msg!("Greetings from: {:?}", ctx.program_id);
-
         instructions::make_offer(ctx, id, token_a_transfer_amount, token_b_requested_amount);
         Ok(())
     }
+
+    // pub fn take_offer() -> Result<()> {
+    //     Ok(())
+    // }
 }
 
 #[derive(Accounts)]

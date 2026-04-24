@@ -19,7 +19,7 @@ pub fn take_offer(ctx: Context<TakeOffer>, id: u64) -> Result<()> {
     let maker_ata_for_token_b = &ctx.accounts.maker_ata_for_token_b;
     let token_program = &ctx.accounts.token_program;
 
-    // transfer token_a from vault to taker
+    // 1. transfer token_a from vault to taker
     let signer_seeds: [&[&[u8]]; 1] = [&[
         b"offer",
         maker.to_account_info().key.as_ref(),
@@ -40,37 +40,37 @@ pub fn take_offer(ctx: Context<TakeOffer>, id: u64) -> Result<()> {
         cpi_context_for_vault_to_taker, 
         vault.amount, 
         token_mint_a.decimals
-    );
+    )?;
 
-    // transfer token_b from taker to maker
+    // 2. transfer token_b from taker to maker
     let cpi_accounts_for_taker_to_maker = TransferChecked {
         from: taker_ata_for_token_b.to_account_info(),
         to: maker_ata_for_token_b.to_account_info(),
         mint: token_mint_b.to_account_info(),
-        authority: taker.to_account_info(),
+        authority: taker.to_account_info()
     };
     let cpi_context_for_taker_to_maker = CpiContext::new(
         token_program.to_account_info(), 
-        cpi_accounts_for_taker_to_maker, 
+        cpi_accounts_for_taker_to_maker
     );
     let _ = transfer_checked(
         cpi_context_for_taker_to_maker, 
         escrow_offer.token_b_requested_amount, 
         token_mint_b.decimals
-    );
+    )?;
 
-    // close escrow_offer account
-    let cpi_accounts_for_close_escrow_offer = CloseAccount {
-        account: escrow_offer.to_account_info(),
-        destination: maker.to_account_info(),
-        authority: escrow_offer.to_account_info(),
+    // 3. close vault account
+    let cpi_accounts_for_close_escrow = CloseAccount {
+        account: vault.to_account_info(),
+        destination: escrow_offer.to_account_info(),
+        authority: maker.to_account_info(),
     };
-    let cpi_context_for_close_escrow_offer = CpiContext::new_with_signer(
+    let cpi_context_for_close_escrow = CpiContext::new_with_signer(
         token_program.to_account_info(), 
-        cpi_accounts_for_close_escrow_offer, 
+        cpi_accounts_for_close_escrow, 
         &signer_seeds
     );
-    let _ = close_account(cpi_context_for_close_escrow_offer);
+    let _ = close_account(cpi_context_for_close_escrow)?;
 
     Ok(())
 }

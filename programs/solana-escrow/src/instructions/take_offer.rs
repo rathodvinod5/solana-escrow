@@ -78,6 +78,7 @@ pub fn take_offer(ctx: Context<TakeOffer>, id: u64) -> Result<()> {
 #[derive(Accounts)]
 #[instruction(id: u64)]
 pub struct TakeOffer<'info> {
+    /// CHECK: taker who accepts the offer for getting token_a from token_b
     #[account(mut)]
     pub taker: Signer<'info>,
 

@@ -19,14 +19,7 @@ pub mod solana_escrow {
         token_b_requested_amount: u64
     ) -> Result<()> {
         msg!("Greetings from: {:?}", ctx.program_id);
-        instructions::make_offer(ctx, id, token_a_transfer_amount, token_b_requested_amount);
+        instructions::make_offer(ctx, id, token_a_transfer_amount, token_b_requested_amount)?;
         Ok(())
     }
-
-    // pub fn take_offer() -> Result<()> {
-    //     Ok(())
-    // }
 }
-
-#[derive(Accounts)]
-pub struct Initialize {}

@@ -60,6 +60,7 @@ pub fn refund_offer(ctx: Context<RefundOffer>) -> Result<()> {
 #[derive(Accounts)]
 #[instruction(id: u64)]
 pub struct RefundOffer<'info> {
+    /// CHECK: maker who refunds it's token back from vault to it's ata
     #[account(mut)]
     pub maker: Signer<'info>,
 

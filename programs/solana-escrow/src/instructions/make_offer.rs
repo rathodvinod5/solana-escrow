@@ -49,6 +49,7 @@ pub fn make_offer(
 #[derive(Accounts)]
 #[instruction(id: u64)]
 pub struct MakeOffer<'info> {
+    /// CHECK: maker who creates an offer for swaping token_a with token_b
     #[account(mut)]
     pub maker: Signer<'info>,
 

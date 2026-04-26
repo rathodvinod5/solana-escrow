@@ -32,7 +32,7 @@ pub fn make_offer(
         authority: maker.to_account_info()
     };
     let cpi_context = CpiContext::new(token_program.to_account_info(), cpi_accounts);
-    transfer_checked(cpi_context, token_a_transfer_amount, token_mint_a.decimals);
+    let _ = transfer_checked(cpi_context, token_a_transfer_amount, token_mint_a.decimals)?;
 
     escrow_offer.set_inner(EscrowOffer {
         id,

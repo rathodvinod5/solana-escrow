@@ -34,6 +34,9 @@ describe("solana-escrow", () => {
   let escrowOfferSeeds;
   let escrowOfferBump;
 
+  let escrowOfferForFailureCase: PublicKey;
+  let vaultForFailureCase: PublicKey;
+
   const tokenATransferAmount = new anchor.BN(100 * 10 ** 9); // 100 tokenA
   const tokenBRequestedAmount = new anchor.BN(200 * 10 ** 9); // 200 tokenB
 
@@ -266,6 +269,20 @@ describe("solana-escrow", () => {
         escrowOffer,
         true, // allowOwnerOffCurve - needed since escrowOffer is a PDA
       );
+
+      [escrowOfferForFailureCase] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("offer"),
+          maker.publicKey.toBuffer(),
+          new anchor.BN(2).toArrayLike(Buffer, "le", 8),
+        ],
+        program.programId,
+      );
+      vaultForFailureCase = await getAssociatedTokenAddress(
+        tokenMintA,
+        escrowOfferForFailureCase,
+        true,
+      );
     });
 
     describe("Happy cases", async () => {
@@ -280,7 +297,6 @@ describe("solana-escrow", () => {
             maker: maker.publicKey,
             tokenMintA,
             tokenMintB,
-            // makerAtaForTokenMintA: makerAtaForTokenA,
             makerAtaForTokenAAccount: makerAtaForTokenA,
             escrowOffer,
             vault,
@@ -362,23 +378,22 @@ describe("solana-escrow", () => {
 
     describe("failure cases", async () => {
       it("should fail when token_a_transfer_amount is 0", async () => {
-        const wrongTokenATransferAmount = new anchor.BN(0);
-        const tokenBRequestedAmount = new anchor.BN(200 * 10 ** 9);
+        const tokenATransferAmountZero = new anchor.BN(0);
 
         try {
           await program.methods
             .makeOffer(
               new anchor.BN(2), // different id to avoid PDA collision
-              wrongTokenATransferAmount,
+              tokenATransferAmountZero,
               tokenBRequestedAmount,
             )
             .accounts({
               maker: maker.publicKey,
               tokenMintA,
               tokenMintB,
-              makerAtaForTokenMintA: makerAtaForTokenA,
-              escrowOffer,
-              vault,
+              makerAtaForTokenAAccount: makerAtaForTokenA,
+              escrowOfferForFailureCase,
+              vaultForFailureCase,
               tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
               systemProgram: anchor.web3.SystemProgram.programId,
               associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
@@ -388,33 +403,31 @@ describe("solana-escrow", () => {
 
           assert.fail("Should have thrown an error");
         } catch (err: any) {
-          console.log("custom: ", err);
           assert.ok(
             err.message.includes("InvalidAmount") ||
-              err.message.includes("Should have thrown an error"),
+              err?.errorCode?.code.includes("InvalidAmount"),
             "Error should be InvalidAmount",
           );
         }
       });
 
-      it.skip("should fail when token_b_requested_amount is 0", async () => {
-        const tokenATransferAmount = new anchor.BN(100 * 10 ** 9);
-        const tokenBRequestedAmount = new anchor.BN(0);
+      it("should fail when token_b_requested_amount is 0", async () => {
+        const tokenBRequestedAmountZero = new anchor.BN(0);
 
         try {
           await program.methods
             .makeOffer(
               new anchor.BN(2),
               tokenATransferAmount,
-              tokenBRequestedAmount,
+              tokenBRequestedAmountZero,
             )
             .accounts({
               maker: maker.publicKey,
               tokenMintA,
               tokenMintB,
               makerAtaForTokenMintA: makerAtaForTokenA,
-              escrowOffer,
-              vault,
+              escrowOfferForFailureCase,
+              vaultForFailureCase,
               tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
               systemProgram: anchor.web3.SystemProgram.programId,
               associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
@@ -423,7 +436,7 @@ describe("solana-escrow", () => {
             .rpc();
 
           assert.fail("Should have thrown an error");
-        } catch (err) {
+        } catch (err: any) {
           assert.ok(
             err.message.includes("InvalidAmount"),
             "Error should be InvalidAmount",
@@ -431,24 +444,8 @@ describe("solana-escrow", () => {
         }
       });
 
-      it.skip("should fail when maker has insufficient tokenA balance", async () => {
+      it("should fail when maker has insufficient tokenA balance", async () => {
         const tokenATransferAmount = new anchor.BN(99999 * 10 ** 9); // more than minted
-        const tokenBRequestedAmount = new anchor.BN(200 * 10 ** 9);
-
-        // derive a fresh escrow PDA with id 2 to avoid collision with existing offer
-        const [freshEscrowOffer] = PublicKey.findProgramAddressSync(
-          [
-            Buffer.from("offer"),
-            maker.publicKey.toBuffer(),
-            new anchor.BN(2).toArrayLike(Buffer, "le", 8),
-          ],
-          program.programId,
-        );
-        const freshVault = await getAssociatedTokenAddress(
-          tokenMintA,
-          freshEscrowOffer,
-          true,
-        );
 
         try {
           await program.methods
@@ -462,8 +459,8 @@ describe("solana-escrow", () => {
               tokenMintA,
               tokenMintB,
               makerAtaForTokenMintA: makerAtaForTokenA,
-              escrowOffer: freshEscrowOffer,
-              vault: freshVault,
+              escrowOffer: escrowOfferForFailureCase,
+              vault: vaultForFailureCase,
               tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
               systemProgram: anchor.web3.SystemProgram.programId,
               associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
@@ -472,7 +469,7 @@ describe("solana-escrow", () => {
             .rpc();
 
           assert.fail("Should have thrown an error");
-        } catch (err) {
+        } catch (err: any) {
           assert.ok(
             err.message.includes("insufficient funds") ||
               err.message.includes("custom program error"),
@@ -481,24 +478,21 @@ describe("solana-escrow", () => {
         }
       });
 
-      it.skip("should fail when non maker tries to create offer with maker's ata", async () => {
-        const tokenATransferAmount = new anchor.BN(100 * 10 ** 9);
-        const tokenBRequestedAmount = new anchor.BN(200 * 10 ** 9);
-
-        // derive a fresh escrow PDA with id 3
-        const [freshEscrowOffer] = PublicKey.findProgramAddressSync(
-          [
-            Buffer.from("offer"),
-            taker.publicKey.toBuffer(),
-            new anchor.BN(3).toArrayLike(Buffer, "le", 8),
-          ],
-          program.programId,
-        );
-        const freshVault = await getAssociatedTokenAddress(
-          tokenMintA,
-          freshEscrowOffer,
-          true,
-        );
+      it("should fail when non maker tries to create offer with maker's ata", async () => {
+        // // derive a fresh escrow PDA with id 3
+        // const [freshEscrowOffer] = PublicKey.findProgramAddressSync(
+        //   [
+        //     Buffer.from("offer"),
+        //     taker.publicKey.toBuffer(),
+        //     new anchor.BN(3).toArrayLike(Buffer, "le", 8),
+        //   ],
+        //   program.programId,
+        // );
+        // const freshVault = await getAssociatedTokenAddress(
+        //   tokenMintA,
+        //   freshEscrowOffer,
+        //   true,
+        // );
 
         try {
           await program.methods
@@ -512,8 +506,8 @@ describe("solana-escrow", () => {
               tokenMintA,
               tokenMintB,
               makerAtaForTokenMintA: makerAtaForTokenA, // but using maker's ATA
-              escrowOffer: freshEscrowOffer,
-              vault: freshVault,
+              escrowOffer: escrowOfferForFailureCase,
+              vault: vaultForFailureCase,
               tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
               systemProgram: anchor.web3.SystemProgram.programId,
               associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
@@ -522,7 +516,7 @@ describe("solana-escrow", () => {
             .rpc();
 
           assert.fail("Should have thrown an error");
-        } catch (err) {
+        } catch (err: any) {
           assert.ok(
             err.message.includes("AnchorError") ||
               err.message.includes("ConstraintTokenOwner") ||
@@ -532,10 +526,7 @@ describe("solana-escrow", () => {
         }
       });
 
-      it.skip("should fail when duplicate offer id is used", async () => {
-        const tokenATransferAmount = new anchor.BN(100 * 10 ** 9);
-        const tokenBRequestedAmount = new anchor.BN(200 * 10 ** 9);
-
+      it("should fail when duplicate offer id is used", async () => {
         try {
           await program.methods
             .makeOffer(
@@ -558,7 +549,7 @@ describe("solana-escrow", () => {
             .rpc();
 
           assert.fail("Should have thrown an error");
-        } catch (err) {
+        } catch (err: any) {
           assert.ok(
             err.message.includes("already in use") ||
               err.message.includes("custom program error"),

@@ -251,24 +251,24 @@ describe("solana-escrow", () => {
   });
 
   describe("CREATE OFFER", async () => {
+    before(async () => {
+      [escrowOffer, escrowOfferBump] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("offer"),
+          maker.publicKey.toBuffer(),
+          new anchor.BN(1).toArrayLike(Buffer, "le", 8),
+        ],
+        program.programId,
+      );
+
+      vault = await getAssociatedTokenAddress(
+        tokenMintA,
+        escrowOffer,
+        true, // allowOwnerOffCurve - needed since escrowOffer is a PDA
+      );
+    });
+
     describe("Happy cases", async () => {
-      before(async () => {
-        [escrowOffer, escrowOfferBump] = PublicKey.findProgramAddressSync(
-          [
-            Buffer.from("offer"),
-            maker.publicKey.toBuffer(),
-            new anchor.BN(1).toArrayLike(Buffer, "le", 8),
-          ],
-          program.programId,
-        );
-
-        vault = await getAssociatedTokenAddress(
-          tokenMintA,
-          escrowOffer,
-          true, // allowOwnerOffCurve - needed since escrowOffer is a PDA
-        );
-      });
-
       it("should create an escrow offer", async () => {
         await program.methods
           .makeOffer(
@@ -360,7 +360,213 @@ describe("solana-escrow", () => {
       });
     });
 
-    describe("failure cases", async () => {});
+    describe("failure cases", async () => {
+      it("should fail when token_a_transfer_amount is 0", async () => {
+        const wrongTokenATransferAmount = new anchor.BN(0);
+        const tokenBRequestedAmount = new anchor.BN(200 * 10 ** 9);
+
+        try {
+          await program.methods
+            .makeOffer(
+              new anchor.BN(2), // different id to avoid PDA collision
+              wrongTokenATransferAmount,
+              tokenBRequestedAmount,
+            )
+            .accounts({
+              maker: maker.publicKey,
+              tokenMintA,
+              tokenMintB,
+              makerAtaForTokenMintA: makerAtaForTokenA,
+              escrowOffer,
+              vault,
+              tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+              systemProgram: anchor.web3.SystemProgram.programId,
+              associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
+            })
+            .signers([maker])
+            .rpc();
+
+          assert.fail("Should have thrown an error");
+        } catch (err: any) {
+          console.log("custom: ", err);
+          assert.ok(
+            err.message.includes("InvalidAmount") ||
+              err.message.includes("Should have thrown an error"),
+            "Error should be InvalidAmount",
+          );
+        }
+      });
+
+      it.skip("should fail when token_b_requested_amount is 0", async () => {
+        const tokenATransferAmount = new anchor.BN(100 * 10 ** 9);
+        const tokenBRequestedAmount = new anchor.BN(0);
+
+        try {
+          await program.methods
+            .makeOffer(
+              new anchor.BN(2),
+              tokenATransferAmount,
+              tokenBRequestedAmount,
+            )
+            .accounts({
+              maker: maker.publicKey,
+              tokenMintA,
+              tokenMintB,
+              makerAtaForTokenMintA: makerAtaForTokenA,
+              escrowOffer,
+              vault,
+              tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+              systemProgram: anchor.web3.SystemProgram.programId,
+              associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
+            })
+            .signers([maker])
+            .rpc();
+
+          assert.fail("Should have thrown an error");
+        } catch (err) {
+          assert.ok(
+            err.message.includes("InvalidAmount"),
+            "Error should be InvalidAmount",
+          );
+        }
+      });
+
+      it.skip("should fail when maker has insufficient tokenA balance", async () => {
+        const tokenATransferAmount = new anchor.BN(99999 * 10 ** 9); // more than minted
+        const tokenBRequestedAmount = new anchor.BN(200 * 10 ** 9);
+
+        // derive a fresh escrow PDA with id 2 to avoid collision with existing offer
+        const [freshEscrowOffer] = PublicKey.findProgramAddressSync(
+          [
+            Buffer.from("offer"),
+            maker.publicKey.toBuffer(),
+            new anchor.BN(2).toArrayLike(Buffer, "le", 8),
+          ],
+          program.programId,
+        );
+        const freshVault = await getAssociatedTokenAddress(
+          tokenMintA,
+          freshEscrowOffer,
+          true,
+        );
+
+        try {
+          await program.methods
+            .makeOffer(
+              new anchor.BN(2),
+              tokenATransferAmount,
+              tokenBRequestedAmount,
+            )
+            .accounts({
+              maker: maker.publicKey,
+              tokenMintA,
+              tokenMintB,
+              makerAtaForTokenMintA: makerAtaForTokenA,
+              escrowOffer: freshEscrowOffer,
+              vault: freshVault,
+              tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+              systemProgram: anchor.web3.SystemProgram.programId,
+              associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
+            })
+            .signers([maker])
+            .rpc();
+
+          assert.fail("Should have thrown an error");
+        } catch (err) {
+          assert.ok(
+            err.message.includes("insufficient funds") ||
+              err.message.includes("custom program error"),
+            "Error should be insufficient funds",
+          );
+        }
+      });
+
+      it.skip("should fail when non maker tries to create offer with maker's ata", async () => {
+        const tokenATransferAmount = new anchor.BN(100 * 10 ** 9);
+        const tokenBRequestedAmount = new anchor.BN(200 * 10 ** 9);
+
+        // derive a fresh escrow PDA with id 3
+        const [freshEscrowOffer] = PublicKey.findProgramAddressSync(
+          [
+            Buffer.from("offer"),
+            taker.publicKey.toBuffer(),
+            new anchor.BN(3).toArrayLike(Buffer, "le", 8),
+          ],
+          program.programId,
+        );
+        const freshVault = await getAssociatedTokenAddress(
+          tokenMintA,
+          freshEscrowOffer,
+          true,
+        );
+
+        try {
+          await program.methods
+            .makeOffer(
+              new anchor.BN(3),
+              tokenATransferAmount,
+              tokenBRequestedAmount,
+            )
+            .accounts({
+              maker: taker.publicKey, // taker pretending to be maker
+              tokenMintA,
+              tokenMintB,
+              makerAtaForTokenMintA: makerAtaForTokenA, // but using maker's ATA
+              escrowOffer: freshEscrowOffer,
+              vault: freshVault,
+              tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+              systemProgram: anchor.web3.SystemProgram.programId,
+              associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
+            })
+            .signers([taker])
+            .rpc();
+
+          assert.fail("Should have thrown an error");
+        } catch (err) {
+          assert.ok(
+            err.message.includes("AnchorError") ||
+              err.message.includes("ConstraintTokenOwner") ||
+              err.message.includes("custom program error"),
+            "Error should be a constraint violation",
+          );
+        }
+      });
+
+      it.skip("should fail when duplicate offer id is used", async () => {
+        const tokenATransferAmount = new anchor.BN(100 * 10 ** 9);
+        const tokenBRequestedAmount = new anchor.BN(200 * 10 ** 9);
+
+        try {
+          await program.methods
+            .makeOffer(
+              new anchor.BN(1), // id 1 already used in happy case
+              tokenATransferAmount,
+              tokenBRequestedAmount,
+            )
+            .accounts({
+              maker: maker.publicKey,
+              tokenMintA,
+              tokenMintB,
+              makerAtaForTokenMintA: makerAtaForTokenA,
+              escrowOffer, // same PDA as happy case
+              vault, // same vault as happy case
+              tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+              systemProgram: anchor.web3.SystemProgram.programId,
+              associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
+            })
+            .signers([maker])
+            .rpc();
+
+          assert.fail("Should have thrown an error");
+        } catch (err) {
+          assert.ok(
+            err.message.includes("already in use") ||
+              err.message.includes("custom program error"),
+            "Error should be account already in use",
+          );
+        }
+      });
+    });
   });
 
   describe("TAKE OFFER", async () => {

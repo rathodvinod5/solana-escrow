@@ -39,7 +39,7 @@ pub fn refund_offer(ctx: Context<RefundOffer>) -> Result<()> {
         cpi_context_for_vault_to_maker, 
         vault.amount, 
         token_mint_a.decimals
-    );
+    )?;
 
     // 2. Close vault account
     let cpi_account_to_close_vault = CloseAccount {
@@ -52,7 +52,7 @@ pub fn refund_offer(ctx: Context<RefundOffer>) -> Result<()> {
         cpi_account_to_close_vault, 
         &signer_seeds
     );
-    let _ = close_account(cpi_context_to_close_escrow_offer);
+    let _ = close_account(cpi_context_to_close_escrow_offer)?;
 
     Ok(())
 }

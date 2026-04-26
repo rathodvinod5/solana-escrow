@@ -23,6 +23,7 @@ pub fn take_offer(ctx: Context<TakeOffer>, id: u64) -> Result<()> {
     let signer_seeds: [&[&[u8]]; 1] = [&[
         b"offer",
         maker.to_account_info().key.as_ref(),
+        &id.to_le_bytes(),
         &[escrow_offer.bump],
     ]];
     let cpi_accounts_for_vault_to_taker = TransferChecked {
@@ -82,6 +83,7 @@ pub struct TakeOffer<'info> {
     #[account(mut)]
     pub taker: Signer<'info>,
 
+    /// CHECK: maker who initiated the offer for token swap
     #[account(mut)]
     pub maker: AccountInfo<'info>,
 

@@ -30,9 +30,12 @@ describe("solana-escrow", () => {
   let takerAtaForTokenA: PublicKey;
   let takerAtaForTokenB: PublicKey;
   let vault: PublicKey;
-  let escrowOfferPda: PublicKey;
+  let escrowOffer: PublicKey;
   let escrowOfferSeeds;
   let escrowOfferBump;
+
+  const tokenATransferAmount = new anchor.BN(100 * 10 ** 9); // 100 tokenA
+  const tokenBRequestedAmount = new anchor.BN(200 * 10 ** 9); // 200 tokenB
 
   describe("AIRDROP, CREATE TOKEN MINTS and ATA's for MAKER and TAKER", async () => {
     before(async () => {
@@ -248,9 +251,9 @@ describe("solana-escrow", () => {
   });
 
   describe("CREATE OFFER", async () => {
-    describe("happy cases", async () => {
+    describe("Happy cases", async () => {
       before(async () => {
-        [escrowOfferPda, escrowOfferBump] = PublicKey.findProgramAddressSync(
+        [escrowOffer, escrowOfferBump] = PublicKey.findProgramAddressSync(
           [
             Buffer.from("offer"),
             maker.publicKey.toBuffer(),
@@ -261,15 +264,12 @@ describe("solana-escrow", () => {
 
         vault = await getAssociatedTokenAddress(
           tokenMintA,
-          escrowOfferPda,
+          escrowOffer,
           true, // allowOwnerOffCurve - needed since escrowOffer is a PDA
         );
       });
 
-      it.skip("should create an escrow offer", async () => {
-        const tokenATransferAmount = new anchor.BN(100 * 10 ** 9); // 100 tokenA
-        const tokenBRequestedAmount = new anchor.BN(200 * 10 ** 9); // 200 tokenB
-
+      it("should create an escrow offer", async () => {
         await program.methods
           .makeOffer(
             new anchor.BN(1), // id
@@ -280,7 +280,8 @@ describe("solana-escrow", () => {
             maker: maker.publicKey,
             tokenMintA,
             tokenMintB,
-            makerAtaForTokenMintA: makerAtaForTokenA,
+            // makerAtaForTokenMintA: makerAtaForTokenA,
+            makerAtaForTokenAAccount: makerAtaForTokenA,
             escrowOffer,
             vault,
             tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
@@ -322,9 +323,7 @@ describe("solana-escrow", () => {
         );
       });
 
-      it.skip("should transfer tokenA from maker ata to vault", async () => {
-        const tokenATransferAmount = new anchor.BN(100 * 10 ** 9);
-
+      it("should transfer tokenA from maker ata to vault", async () => {
         // verify vault received tokenA
         const vaultAccount = await getAccount(provider.connection, vault);
         assert.strictEqual(
@@ -345,7 +344,7 @@ describe("solana-escrow", () => {
         );
       });
 
-      it.skip("should verify vault is owned by escrow offer pda", async () => {
+      it("should verify vault is owned by escrow offer pda", async () => {
         const vaultAccount = await getAccount(provider.connection, vault);
 
         assert.strictEqual(

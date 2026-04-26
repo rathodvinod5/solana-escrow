@@ -1,8 +1,15 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
-import { SolanaEscrow } from "../target/types/solana_escrow";
 import { PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
-import { createMint } from "@solana/spl-token";
+import {
+  createMint,
+  getAccount,
+  createAssociatedTokenAccount,
+  mintTo,
+  getAssociatedTokenAddress,
+} from "@solana/spl-token";
+import assert from "assert";
+import { SolanaEscrow } from "../target/types/solana_escrow";
 
 describe("solana-escrow", () => {
   // Configure the client to use the local cluster.
@@ -23,10 +30,11 @@ describe("solana-escrow", () => {
   let takerAtaForTokenA: PublicKey;
   let takerAtaForTokenB: PublicKey;
   let vault: PublicKey;
-  let escrowOffer: PublicKey;
-  let escrowSeeds;
+  let escrowOfferPda: PublicKey;
+  let escrowOfferSeeds;
+  let escrowOfferBump;
 
-  describe("AIRDROP AND CREATE TOKEN MINTS", async () => {
+  describe("AIRDROP, CREATE TOKEN MINTS and ATA's for MAKER and TAKER", async () => {
     before(async () => {
       try {
         await airdrop(
@@ -73,12 +81,285 @@ describe("solana-escrow", () => {
         );
       });
 
-      it("should create maker ata for tokenMintA", async () => {});
+      it("should create maker ata for tokenMintA", async () => {
+        makerAtaForTokenA = await createAssociatedTokenAccount(
+          provider.connection,
+          maker, // payer
+          tokenMintA, // mint
+          maker.publicKey, // owner
+        );
+
+        const makerAtaForTokenAAccount = await getAccount(
+          provider.connection,
+          makerAtaForTokenA,
+        );
+
+        assert.strictEqual(
+          makerAtaForTokenAAccount.mint.toBase58(),
+          tokenMintA.toBase58(),
+          "Mint should match tokenMintA",
+        );
+        assert.strictEqual(
+          makerAtaForTokenAAccount.owner.toBase58(),
+          maker.publicKey.toBase58(),
+          "Owner should be maker",
+        );
+        assert.strictEqual(
+          makerAtaForTokenAAccount.amount,
+          BigInt(0),
+          "Initial balance should be 0",
+        );
+      });
+
+      it("should create makerAtaForTokenB", async () => {
+        makerAtaForTokenB = await createAssociatedTokenAccount(
+          provider.connection,
+          maker, // payer
+          tokenMintB, // mint
+          maker.publicKey, // owner
+        );
+
+        const makerAtaForTokenBAccount = await getAccount(
+          provider.connection,
+          makerAtaForTokenB,
+        );
+
+        assert.strictEqual(
+          makerAtaForTokenBAccount.mint.toBase58(),
+          tokenMintB.toBase58(),
+          "Mint should match tokenMintB",
+        );
+        assert.strictEqual(
+          makerAtaForTokenBAccount.owner.toBase58(),
+          maker.publicKey.toBase58(),
+          "Owner should be maker",
+        );
+        assert.strictEqual(
+          makerAtaForTokenBAccount.amount,
+          BigInt(0),
+          "Initial balance should be 0",
+        );
+      });
+
+      it("should create takerAtaForTokenA", async () => {
+        takerAtaForTokenA = await createAssociatedTokenAccount(
+          provider.connection,
+          taker, // payer
+          tokenMintA, // mint
+          taker.publicKey, // owner
+        );
+
+        const takerAtaForTokenAAccount = await getAccount(
+          provider.connection,
+          takerAtaForTokenA,
+        );
+
+        assert.strictEqual(
+          takerAtaForTokenAAccount.mint.toBase58(),
+          tokenMintA.toBase58(),
+          "Mint should match tokenMintA",
+        );
+        assert.strictEqual(
+          takerAtaForTokenAAccount.owner.toBase58(),
+          taker.publicKey.toBase58(),
+          "Owner should be taker",
+        );
+        assert.strictEqual(
+          takerAtaForTokenAAccount.amount,
+          BigInt(0),
+          "Initial balance should be 0",
+        );
+      });
+
+      it("should create takerAtaForTokenB", async () => {
+        takerAtaForTokenB = await createAssociatedTokenAccount(
+          provider.connection,
+          taker, // payer
+          tokenMintB, // mint
+          taker.publicKey, // owner
+        );
+
+        const takerAtaForTokenBAccount = await getAccount(
+          provider.connection,
+          takerAtaForTokenB,
+        );
+
+        assert.strictEqual(
+          takerAtaForTokenBAccount.mint.toBase58(),
+          tokenMintB.toBase58(),
+          "Mint should match tokenMintB",
+        );
+        assert.strictEqual(
+          takerAtaForTokenBAccount.owner.toBase58(),
+          taker.publicKey.toBase58(),
+          "Owner should be taker",
+        );
+        assert.strictEqual(
+          takerAtaForTokenBAccount.amount,
+          BigInt(0),
+          "Initial balance should be 0",
+        );
+      });
+
+      it("should mint tokenA to makerAtaForTokenA", async () => {
+        await mintTo(
+          provider.connection,
+          admin, // payer
+          tokenMintA, // mint
+          makerAtaForTokenA, // destination
+          admin.publicKey, // mintAuthority
+          1000 * 10 ** 9, // amount (1000 tokens with 9 decimals)
+        );
+
+        const makerAtaForTokenAAccount = await getAccount(
+          provider.connection,
+          makerAtaForTokenA,
+        );
+
+        assert.strictEqual(
+          makerAtaForTokenAAccount.amount,
+          BigInt(1000 * 10 ** 9),
+          "Maker should have 1000 tokenA",
+        );
+      });
+
+      it("should mint tokenB to takerAtaForTokenB", async () => {
+        await mintTo(
+          provider.connection,
+          admin, // payer
+          tokenMintB, // mint
+          takerAtaForTokenB, // destination
+          admin.publicKey, // mintAuthority
+          1000 * 10 ** 9, // amount (1000 tokens with 9 decimals)
+        );
+
+        const takerAtaForTokenBAccount = await getAccount(
+          provider.connection,
+          takerAtaForTokenB,
+        );
+
+        assert.strictEqual(
+          takerAtaForTokenBAccount.amount,
+          BigInt(1000 * 10 ** 9),
+          "Taker should have 1000 tokenB",
+        );
+      });
     });
   });
 
   describe("CREATE OFFER", async () => {
-    describe("happy cases", async () => {});
+    describe("happy cases", async () => {
+      before(async () => {
+        [escrowOfferPda, escrowOfferBump] = PublicKey.findProgramAddressSync(
+          [
+            Buffer.from("offer"),
+            maker.publicKey.toBuffer(),
+            new anchor.BN(1).toArrayLike(Buffer, "le", 8),
+          ],
+          program.programId,
+        );
+
+        vault = await getAssociatedTokenAddress(
+          tokenMintA,
+          escrowOfferPda,
+          true, // allowOwnerOffCurve - needed since escrowOffer is a PDA
+        );
+      });
+
+      it.skip("should create an escrow offer", async () => {
+        const tokenATransferAmount = new anchor.BN(100 * 10 ** 9); // 100 tokenA
+        const tokenBRequestedAmount = new anchor.BN(200 * 10 ** 9); // 200 tokenB
+
+        await program.methods
+          .makeOffer(
+            new anchor.BN(1), // id
+            tokenATransferAmount,
+            tokenBRequestedAmount,
+          )
+          .accounts({
+            maker: maker.publicKey,
+            tokenMintA,
+            tokenMintB,
+            makerAtaForTokenMintA: makerAtaForTokenA,
+            escrowOffer,
+            vault,
+            tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+            systemProgram: anchor.web3.SystemProgram.programId,
+            associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
+          })
+          .signers([maker])
+          .rpc();
+
+        // verify escrow offer account state
+        const escrowOfferAccount = await program.account.escrowOffer.fetch(
+          escrowOffer,
+        );
+
+        assert.strictEqual(
+          escrowOfferAccount.id.toString(),
+          "1",
+          "Escrow offer id should be 1",
+        );
+        assert.strictEqual(
+          escrowOfferAccount.maker.toBase58(),
+          maker.publicKey.toBase58(),
+          "Maker should match",
+        );
+        assert.strictEqual(
+          escrowOfferAccount.tokenMintA.toBase58(),
+          tokenMintA.toBase58(),
+          "TokenMintA should match",
+        );
+        assert.strictEqual(
+          escrowOfferAccount.tokenMintB.toBase58(),
+          tokenMintB.toBase58(),
+          "TokenMintB should match",
+        );
+        assert.strictEqual(
+          escrowOfferAccount.tokenBRequestedAmount.toString(),
+          tokenBRequestedAmount.toString(),
+          "TokenB requested amount should match",
+        );
+      });
+
+      it.skip("should transfer tokenA from maker ata to vault", async () => {
+        const tokenATransferAmount = new anchor.BN(100 * 10 ** 9);
+
+        // verify vault received tokenA
+        const vaultAccount = await getAccount(provider.connection, vault);
+        assert.strictEqual(
+          vaultAccount.amount,
+          BigInt(tokenATransferAmount.toString()),
+          "Vault should have 100 tokenA",
+        );
+
+        // verify maker ata was debited
+        const makerAtaForTokenAAccount = await getAccount(
+          provider.connection,
+          makerAtaForTokenA,
+        );
+        assert.strictEqual(
+          makerAtaForTokenAAccount.amount,
+          BigInt(900 * 10 ** 9),
+          "Maker should have 900 tokenA remaining",
+        );
+      });
+
+      it.skip("should verify vault is owned by escrow offer pda", async () => {
+        const vaultAccount = await getAccount(provider.connection, vault);
+
+        assert.strictEqual(
+          vaultAccount.owner.toBase58(),
+          escrowOffer.toBase58(),
+          "Vault owner should be escrow offer PDA",
+        );
+        assert.strictEqual(
+          vaultAccount.mint.toBase58(),
+          tokenMintA.toBase58(),
+          "Vault mint should be tokenMintA",
+        );
+      });
+    });
 
     describe("failure cases", async () => {});
   });

@@ -63,8 +63,8 @@ pub fn take_offer(ctx: Context<TakeOffer>, id: u64) -> Result<()> {
     // 3. close vault account
     let cpi_accounts_for_close_escrow = CloseAccount {
         account: vault.to_account_info(),
-        destination: escrow_offer.to_account_info(),
-        authority: maker.to_account_info(),
+        destination: maker.to_account_info(),
+        authority: escrow_offer.to_account_info(),
     };
     let cpi_context_for_close_escrow = CpiContext::new_with_signer(
         token_program.to_account_info(), 
@@ -104,7 +104,7 @@ pub struct TakeOffer<'info> {
     #[account(
         mut,
         associated_token::mint = token_mint_b,
-        associated_token::authority = token_mint_b,
+        associated_token::authority = taker,
         associated_token::token_program = token_program
     )]
     pub taker_ata_for_token_b: Account<'info, TokenAccount>,
@@ -121,8 +121,8 @@ pub struct TakeOffer<'info> {
         mut,
         close = maker,
         has_one = token_mint_a @ EscrowError::InvalidTokenMintA,
-        has_one = token_mint_b @ EscrowError::InvalidTokenMintA,
-        has_one = maker @ EscrowError::InvalidMaker,
+        has_one = token_mint_b @ EscrowError::InvalidTokenMintB,
+        // has_one = maker @ EscrowError::InvalidMaker,
         seeds = [b"offer", maker.key().as_ref(), &id.to_le_bytes()],
         bump = escrow_offer.bump
     )]

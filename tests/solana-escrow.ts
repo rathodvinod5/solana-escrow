@@ -561,9 +561,166 @@ describe("solana-escrow", () => {
   });
 
   describe("TAKE OFFER", async () => {
-    describe("happy cases", async () => {});
+    let makerTokenABalanceBeforeTake: bigint;
+    let makerTokenBBalanceBeforeTake: bigint;
+    let takerTokenABalanceBeforeTake: bigint;
+    let takerTokenBBalanceBeforeTake: bigint;
+    let vaultTokenABalanceBeforeTake: bigint;
 
-    describe("failure cases", async () => {});
+    before(async () => {
+      // capture all balances before take offer
+      const makerAtaForTokenAAccount = await getAccount(
+        provider.connection,
+        makerAtaForTokenA,
+      );
+      const makerAtaForTokenBAccount = await getAccount(
+        provider.connection,
+        makerAtaForTokenB,
+      );
+      const takerAtaForTokenAAccount = await getAccount(
+        provider.connection,
+        takerAtaForTokenA,
+      );
+      const takerAtaForTokenBAccount = await getAccount(
+        provider.connection,
+        takerAtaForTokenB,
+      );
+      const vaultAccount = await getAccount(provider.connection, vault);
+
+      makerTokenABalanceBeforeTake = makerAtaForTokenAAccount.amount;
+      makerTokenBBalanceBeforeTake = makerAtaForTokenBAccount.amount;
+      takerTokenABalanceBeforeTake = takerAtaForTokenAAccount.amount;
+      takerTokenBBalanceBeforeTake = takerAtaForTokenBAccount.amount;
+      vaultTokenABalanceBeforeTake = vaultAccount.amount;
+    });
+
+    describe("Happy cases", async () => {
+      it("should take the escrow offer successfully", async () => {
+        // const [derivedEscrowOffer, derivedBump] =
+        //   PublicKey.findProgramAddressSync(
+        //     [
+        //       Buffer.from("offer"),
+        //       maker.publicKey.toBuffer(),
+        //       new anchor.BN(1).toArrayLike(Buffer, "le", 8),
+        //     ],
+        //     program.programId,
+        //   );
+
+        // console.log("escrowOffer from before block:", escrowOffer.toBase58());
+        // console.log(
+        //   "freshly derived escrowOffer:",
+        //   derivedEscrowOffer.toBase58(),
+        // );
+        // console.log(
+        //   "do they match?",
+        //   escrowOffer.toBase58() === derivedEscrowOffer.toBase58(),
+        // );
+
+        // const escrowOfferAccount = await program.account.escrowOffer.fetch(
+        //   escrowOffer,
+        // );
+        // console.log("on-chain escrowOffer data:", {
+        //   id: escrowOfferAccount.id.toString(),
+        //   maker: escrowOfferAccount.maker.toBase58(),
+        //   bump: escrowOfferAccount.bump,
+        // });
+        // console.log("maker pubkey in test:", maker.publicKey.toBase58());
+
+        await program.methods
+          .takeOffer(new anchor.BN(1)) // id 1 created in make offer happy case
+          .accounts({
+            taker: taker.publicKey,
+            maker: maker.publicKey,
+            tokenMintA,
+            tokenMintB,
+            takerAtaForTokenA,
+            takerAtaForTokenB,
+            makerAtaForTokenB,
+            escrowOffer,
+            vault,
+            tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+            systemProgram: anchor.web3.SystemProgram.programId,
+            associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
+          })
+          .signers([taker])
+          .rpc();
+
+        // verify escrow offer account is closed
+        const escrowOfferAccountAfter =
+          await provider.connection.getAccountInfo(escrowOffer);
+        assert.strictEqual(
+          escrowOfferAccountAfter,
+          null,
+          "Escrow offer account should be closed",
+        );
+      });
+
+      it("should transfer tokenA from vault to taker", async () => {
+        const takerAtaForTokenAAccount = await getAccount(
+          provider.connection,
+          takerAtaForTokenA,
+        );
+
+        assert.strictEqual(
+          takerAtaForTokenAAccount.amount,
+          takerTokenABalanceBeforeTake + vaultTokenABalanceBeforeTake,
+          "Taker should have received tokenA from vault",
+        );
+      });
+
+      it("should transfer tokenB from taker to maker", async () => {
+        const escrowOfferAccount =
+          await program.account.escrowOffer.fetchNullable(escrowOffer);
+        const tokenBRequestedAmount = BigInt(200 * 10 ** 9); // same as make offer
+
+        // verify maker received tokenB
+        const makerAtaForTokenBAccount = await getAccount(
+          provider.connection,
+          makerAtaForTokenB,
+        );
+        assert.strictEqual(
+          makerAtaForTokenBAccount.amount,
+          makerTokenBBalanceBeforeTake + tokenBRequestedAmount,
+          "Maker should have received tokenB from taker",
+        );
+
+        // verify taker was debited tokenB
+        const takerAtaForTokenBAccount = await getAccount(
+          provider.connection,
+          takerAtaForTokenB,
+        );
+        assert.strictEqual(
+          takerAtaForTokenBAccount.amount,
+          takerTokenBBalanceBeforeTake - tokenBRequestedAmount,
+          "Taker should have been debited tokenB",
+        );
+      });
+
+      it("should close vault account after take offer", async () => {
+        const vaultAccount = await provider.connection.getAccountInfo(vault);
+
+        assert.strictEqual(
+          vaultAccount,
+          null,
+          "Vault account should be closed after take offer",
+        );
+      });
+
+      it("should verify maker did not receive extra tokenA", async () => {
+        const makerAtaForTokenAAccount = await getAccount(
+          provider.connection,
+          makerAtaForTokenA,
+        );
+
+        assert.strictEqual(
+          makerAtaForTokenAAccount.amount,
+          makerTokenABalanceBeforeTake,
+          "Maker tokenA balance should remain unchanged",
+        );
+      });
+    });
+
+    describe("Failure cases", async () => {});
   });
 
   describe("REFUND OFFER", async () => {

@@ -25,6 +25,8 @@ pub fn make_offer(
     require_gt!(token_a_transfer_amount, 0, EscrowError::InvalidAmount);
     require_gt!(token_b_requested_amount, 0, EscrowError::InvalidAmount);
 
+    let escrow_bump = ctx.bumps.escrow_offer;
+
     let cpi_accounts = TransferChecked {
         from: ctx.accounts.maker_ata_for_token_mint_a.to_account_info(),
         to: vault.to_account_info(),
@@ -40,7 +42,7 @@ pub fn make_offer(
         token_mint_a: token_mint_a.key(),
         token_mint_b: token_mint_b.key(),
         token_b_requested_amount: token_b_requested_amount,
-        bump: escrow_offer.bump
+        bump: escrow_bump
     });
 
     Ok(())

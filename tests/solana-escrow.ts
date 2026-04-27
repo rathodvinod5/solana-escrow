@@ -479,21 +479,6 @@ describe("solana-escrow", () => {
       });
 
       it("should fail when non maker tries to create offer with maker's ata", async () => {
-        // // derive a fresh escrow PDA with id 3
-        // const [freshEscrowOffer] = PublicKey.findProgramAddressSync(
-        //   [
-        //     Buffer.from("offer"),
-        //     taker.publicKey.toBuffer(),
-        //     new anchor.BN(3).toArrayLike(Buffer, "le", 8),
-        //   ],
-        //   program.programId,
-        // );
-        // const freshVault = await getAssociatedTokenAddress(
-        //   tokenMintA,
-        //   freshEscrowOffer,
-        //   true,
-        // );
-
         try {
           await program.methods
             .makeOffer(
@@ -561,9 +546,364 @@ describe("solana-escrow", () => {
   });
 
   describe("TAKE OFFER", async () => {
-    describe("happy cases", async () => {});
+    let makerTokenABalanceBeforeTake: bigint;
+    let makerTokenBBalanceBeforeTake: bigint;
+    let takerTokenABalanceBeforeTake: bigint;
+    let takerTokenBBalanceBeforeTake: bigint;
+    let vaultTokenABalanceBeforeTake: bigint;
 
-    describe("failure cases", async () => {});
+    before(async () => {
+      // capture all balances before take offer
+      const makerAtaForTokenAAccount = await getAccount(
+        provider.connection,
+        makerAtaForTokenA,
+      );
+      const makerAtaForTokenBAccount = await getAccount(
+        provider.connection,
+        makerAtaForTokenB,
+      );
+      const takerAtaForTokenAAccount = await getAccount(
+        provider.connection,
+        takerAtaForTokenA,
+      );
+      const takerAtaForTokenBAccount = await getAccount(
+        provider.connection,
+        takerAtaForTokenB,
+      );
+      const vaultAccount = await getAccount(provider.connection, vault);
+
+      makerTokenABalanceBeforeTake = makerAtaForTokenAAccount.amount;
+      makerTokenBBalanceBeforeTake = makerAtaForTokenBAccount.amount;
+      takerTokenABalanceBeforeTake = takerAtaForTokenAAccount.amount;
+      takerTokenBBalanceBeforeTake = takerAtaForTokenBAccount.amount;
+      vaultTokenABalanceBeforeTake = vaultAccount.amount;
+    });
+
+    describe("Happy cases", async () => {
+      it("should take the escrow offer successfully", async () => {
+        await program.methods
+          .takeOffer(new anchor.BN(1)) // id 1 created in make offer happy case
+          .accounts({
+            taker: taker.publicKey,
+            maker: maker.publicKey,
+            tokenMintA,
+            tokenMintB,
+            takerAtaForTokenA,
+            takerAtaForTokenB,
+            makerAtaForTokenB,
+            escrowOffer,
+            vault,
+            tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+            systemProgram: anchor.web3.SystemProgram.programId,
+            associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
+          })
+          .signers([taker])
+          .rpc();
+
+        // verify escrow offer account is closed
+        const escrowOfferAccountAfter =
+          await provider.connection.getAccountInfo(escrowOffer);
+        assert.strictEqual(
+          escrowOfferAccountAfter,
+          null,
+          "Escrow offer account should be closed",
+        );
+      });
+
+      it("should transfer tokenA from vault to taker", async () => {
+        const takerAtaForTokenAAccount = await getAccount(
+          provider.connection,
+          takerAtaForTokenA,
+        );
+
+        assert.strictEqual(
+          takerAtaForTokenAAccount.amount,
+          takerTokenABalanceBeforeTake + vaultTokenABalanceBeforeTake,
+          "Taker should have received tokenA from vault",
+        );
+      });
+
+      it("should transfer tokenB from taker to maker", async () => {
+        const escrowOfferAccount =
+          await program.account.escrowOffer.fetchNullable(escrowOffer);
+        const tokenBRequestedAmount = BigInt(200 * 10 ** 9); // same as make offer
+
+        // verify maker received tokenB
+        const makerAtaForTokenBAccount = await getAccount(
+          provider.connection,
+          makerAtaForTokenB,
+        );
+        assert.strictEqual(
+          makerAtaForTokenBAccount.amount,
+          makerTokenBBalanceBeforeTake + tokenBRequestedAmount,
+          "Maker should have received tokenB from taker",
+        );
+
+        // verify taker was debited tokenB
+        const takerAtaForTokenBAccount = await getAccount(
+          provider.connection,
+          takerAtaForTokenB,
+        );
+        assert.strictEqual(
+          takerAtaForTokenBAccount.amount,
+          takerTokenBBalanceBeforeTake - tokenBRequestedAmount,
+          "Taker should have been debited tokenB",
+        );
+      });
+
+      it("should close vault account after take offer", async () => {
+        const vaultAccount = await provider.connection.getAccountInfo(vault);
+
+        assert.strictEqual(
+          vaultAccount,
+          null,
+          "Vault account should be closed after take offer",
+        );
+      });
+
+      it("should verify maker did not receive extra tokenA", async () => {
+        const makerAtaForTokenAAccount = await getAccount(
+          provider.connection,
+          makerAtaForTokenA,
+        );
+
+        assert.strictEqual(
+          makerAtaForTokenAAccount.amount,
+          makerTokenABalanceBeforeTake,
+          "Maker tokenA balance should remain unchanged",
+        );
+      });
+    });
+
+    describe("failure cases", async () => {
+      let freshEscrowOffer: PublicKey;
+      let freshVault: PublicKey;
+
+      before(async () => {
+        // create a fresh escrow offer for failure cases
+        // since the happy case offer (id 1) is already closed
+        const [freshEscrowOfferPda] = PublicKey.findProgramAddressSync(
+          [
+            Buffer.from("offer"),
+            maker.publicKey.toBuffer(),
+            new anchor.BN(10).toArrayLike(Buffer, "le", 8),
+          ],
+          program.programId,
+        );
+        freshEscrowOffer = freshEscrowOfferPda;
+        freshVault = await getAssociatedTokenAddress(
+          tokenMintA,
+          freshEscrowOffer,
+          true,
+        );
+
+        // create a fresh offer with id 10
+        await program.methods
+          .makeOffer(
+            new anchor.BN(10),
+            new anchor.BN(100 * 10 ** 9), // 100 tokenA
+            new anchor.BN(200 * 10 ** 9), // 200 tokenB
+          )
+          .accounts({
+            maker: maker.publicKey,
+            tokenMintA,
+            tokenMintB,
+            makerAtaForTokenMintA: makerAtaForTokenA,
+            escrowOffer: freshEscrowOffer,
+            vault: freshVault,
+            tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+            systemProgram: anchor.web3.SystemProgram.programId,
+            associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
+          })
+          .signers([maker])
+          .rpc();
+      });
+
+      it("should fail when wrong maker is provided", async () => {
+        try {
+          await program.methods
+            .takeOffer(new anchor.BN(10))
+            .accounts({
+              taker: taker.publicKey,
+              maker: taker.publicKey, // wrong maker - passing taker as maker
+              tokenMintA,
+              tokenMintB,
+              takerAtaForTokenA,
+              takerAtaForTokenB,
+              makerAtaForTokenB,
+              escrowOffer: freshEscrowOffer,
+              vault: freshVault,
+              tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+              systemProgram: anchor.web3.SystemProgram.programId,
+              associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
+            })
+            .signers([taker])
+            .rpc();
+
+          assert.fail("Should have thrown an error");
+        } catch (err: any) {
+          assert.ok(
+            err.message.includes("InvalidMaker") ||
+              err.message.includes("ConstraintSeeds") ||
+              err.message.includes("ConstraintHasOne") ||
+              err.message.includes("ConstraintTokenOwner"),
+            "Error should be a constraint violation due to wrong maker",
+          );
+        }
+      });
+
+      it("should fail when wrong tokenMintA is provided", async () => {
+        try {
+          await program.methods
+            .takeOffer(new anchor.BN(10))
+            .accounts({
+              taker: taker.publicKey,
+              maker: maker.publicKey,
+              tokenMintA: tokenMintB, // wrong - passing tokenMintB as tokenMintA
+              tokenMintB,
+              takerAtaForTokenA,
+              takerAtaForTokenB,
+              makerAtaForTokenB,
+              escrowOffer: freshEscrowOffer,
+              vault: freshVault,
+              tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+              systemProgram: anchor.web3.SystemProgram.programId,
+              associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
+            })
+            .signers([taker])
+            .rpc();
+
+          assert.fail("Should have thrown an error");
+        } catch (err: any) {
+          assert.ok(
+            err.message.includes("InvalidTokenMintA") ||
+              err.message.includes("ConstraintHasOne") ||
+              err.message.includes("ConstraintAssociated") ||
+              err.message.includes("custom program error"),
+            "Error should be a constraint violation due to wrong tokenMintA",
+          );
+        }
+      });
+
+      it("should fail when wrong tokenMintB is provided", async () => {
+        try {
+          await program.methods
+            .takeOffer(new anchor.BN(10))
+            .accounts({
+              taker: taker.publicKey,
+              maker: maker.publicKey,
+              tokenMintA,
+              tokenMintB: tokenMintA, // wrong - passing tokenMintA as tokenMintB
+              takerAtaForTokenA,
+              takerAtaForTokenB,
+              makerAtaForTokenB,
+              escrowOffer: freshEscrowOffer,
+              vault: freshVault,
+              tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+              systemProgram: anchor.web3.SystemProgram.programId,
+              associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
+            })
+            .signers([taker])
+            .rpc();
+
+          assert.fail("Should have thrown an error");
+        } catch (err: any) {
+          assert.ok(
+            err.message.includes("InvalidTokenMintB") ||
+              err.message.includes("ConstraintHasOne") ||
+              err.message.includes("ConstraintAssociated") || // ✅ add this
+              err.message.includes("custom program error"),
+            "Error should be a constraint violation due to wrong tokenMintB",
+          );
+        }
+      });
+
+      it("should fail when taker has insufficient tokenB balance", async () => {
+        // create a new taker with no tokens
+        const newTaker = anchor.web3.Keypair.generate();
+        await airdrop(
+          provider.connection,
+          newTaker.publicKey,
+          10 * LAMPORTS_PER_SOL,
+        );
+
+        // create atas for new taker
+        const newTakerAtaForTokenA = await createAssociatedTokenAccount(
+          provider.connection,
+          newTaker,
+          tokenMintA,
+          newTaker.publicKey,
+        );
+        const newTakerAtaForTokenB = await createAssociatedTokenAccount(
+          provider.connection,
+          newTaker,
+          tokenMintB,
+          newTaker.publicKey,
+        );
+
+        try {
+          await program.methods
+            .takeOffer(new anchor.BN(10))
+            .accounts({
+              taker: newTaker.publicKey,
+              maker: maker.publicKey,
+              tokenMintA,
+              tokenMintB,
+              takerAtaForTokenA: newTakerAtaForTokenA,
+              takerAtaForTokenB: newTakerAtaForTokenB, // 0 tokenB balance
+              makerAtaForTokenB,
+              escrowOffer: freshEscrowOffer,
+              vault: freshVault,
+              tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+              systemProgram: anchor.web3.SystemProgram.programId,
+              associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
+            })
+            .signers([newTaker])
+            .rpc();
+
+          assert.fail("Should have thrown an error");
+        } catch (err: any) {
+          assert.ok(
+            err.message.includes("insufficient funds") ||
+              err.message.includes("custom program error"),
+            "Error should be insufficient funds",
+          );
+        }
+      });
+
+      it("should fail when taker tries to take already closed offer", async () => {
+        // escrow offer id 1 was already closed in happy case
+        try {
+          await program.methods
+            .takeOffer(new anchor.BN(1))
+            .accounts({
+              taker: taker.publicKey,
+              maker: maker.publicKey,
+              tokenMintA,
+              tokenMintB,
+              takerAtaForTokenA,
+              takerAtaForTokenB,
+              makerAtaForTokenB,
+              escrowOffer, // id 1 - already closed
+              vault, // id 1 - already closed
+              tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+              systemProgram: anchor.web3.SystemProgram.programId,
+              associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
+            })
+            .signers([taker])
+            .rpc();
+
+          assert.fail("Should have thrown an error");
+        } catch (err: any) {
+          assert.ok(
+            err.message.includes("AccountNotInitialized") ||
+              err.message.includes("AccountOwnedByWrongProgram") ||
+              err.message.includes("custom program error"),
+            "Error should be account not initialized",
+          );
+        }
+      });
+    });
   });
 
   describe("REFUND OFFER", async () => {

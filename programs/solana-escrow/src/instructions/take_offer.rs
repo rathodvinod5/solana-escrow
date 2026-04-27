@@ -122,7 +122,7 @@ pub struct TakeOffer<'info> {
         close = maker,
         has_one = token_mint_a @ EscrowError::InvalidTokenMintA,
         has_one = token_mint_b @ EscrowError::InvalidTokenMintB,
-        // has_one = maker @ EscrowError::InvalidMaker,
+        has_one = maker @ EscrowError::InvalidMaker,
         seeds = [b"offer", maker.key().as_ref(), &id.to_le_bytes()],
         bump = escrow_offer.bump
     )]

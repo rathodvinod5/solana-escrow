@@ -253,7 +253,7 @@ describe("solana-escrow", () => {
     });
   });
 
-  describe("CREATE OFFER", async () => {
+  describe("MAKE OFFER", async () => {
     before(async () => {
       [escrowOffer, escrowOfferBump] = PublicKey.findProgramAddressSync(
         [

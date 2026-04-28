@@ -33,8 +33,9 @@ pub mod solana_escrow {
 
     pub fn refund_offer(
         ctx: Context<RefundOffer>,
+        id: u64
     ) -> Result<()> {
-        let _ = instructions::refund_offer(ctx)?;
+        let _ = instructions::refund_offer(ctx, id)?;
         Ok(())
     }
 }

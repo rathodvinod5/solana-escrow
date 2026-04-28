@@ -907,7 +907,126 @@ describe("solana-escrow", () => {
   });
 
   describe("REFUND OFFER", async () => {
-    describe("happy cases", async () => {});
+    let refundEscrowOffer: PublicKey;
+    let refundVault: PublicKey;
+    let makerTokenABalanceBeforeRefund: bigint;
+    let vaultTokenABalanceBeforeRefund: bigint;
+
+    before(async () => {
+      // derive fresh PDA with id 20 for refund tests
+      const [refundEscrowOfferPda] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("offer"),
+          maker.publicKey.toBuffer(),
+          new anchor.BN(20).toArrayLike(Buffer, "le", 8),
+        ],
+        program.programId,
+      );
+      refundEscrowOffer = refundEscrowOfferPda;
+      refundVault = await getAssociatedTokenAddress(
+        tokenMintA,
+        refundEscrowOffer,
+        true,
+      );
+
+      // create a fresh offer with id 20
+      await program.methods
+        .makeOffer(
+          new anchor.BN(20),
+          new anchor.BN(100 * 10 ** 9), // 100 tokenA
+          new anchor.BN(200 * 10 ** 9), // 200 tokenB
+        )
+        .accounts({
+          maker: maker.publicKey,
+          tokenMintA,
+          tokenMintB,
+          makerAtaForTokenMintA: makerAtaForTokenA,
+          escrowOffer: refundEscrowOffer,
+          vault: refundVault,
+          tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+          systemProgram: anchor.web3.SystemProgram.programId,
+          associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
+        })
+        .signers([maker])
+        .rpc();
+
+      // capture balances before refund
+      const makerAtaForTokenAAccount = await getAccount(
+        provider.connection,
+        makerAtaForTokenA,
+      );
+      const vaultAccount = await getAccount(provider.connection, refundVault);
+
+      makerTokenABalanceBeforeRefund = makerAtaForTokenAAccount.amount;
+      vaultTokenABalanceBeforeRefund = vaultAccount.amount;
+    });
+
+    describe("happy cases", async () => {
+      it("should refund the escrow offer successfully", async () => {
+        await program.methods
+          .refundOffer(new anchor.BN(20))
+          .accounts({
+            maker: maker.publicKey,
+            tokenMintA,
+            makerAtaForTokenA,
+            vault: refundVault,
+            escrowOffer: refundEscrowOffer,
+            tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+            systemProgram: anchor.web3.SystemProgram.programId,
+            associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
+          })
+          .signers([maker])
+          .rpc();
+
+        // verify escrow offer account is closed
+        const refundEscrowOfferAccount =
+          await provider.connection.getAccountInfo(refundEscrowOffer);
+        assert.strictEqual(
+          refundEscrowOfferAccount,
+          null,
+          "Escrow offer account should be closed after refund",
+        );
+      });
+
+      it("should transfer tokenA from vault back to maker", async () => {
+        const makerAtaForTokenAAccount = await getAccount(
+          provider.connection,
+          makerAtaForTokenA,
+        );
+
+        assert.strictEqual(
+          makerAtaForTokenAAccount.amount,
+          makerTokenABalanceBeforeRefund + vaultTokenABalanceBeforeRefund,
+          "Maker should have received tokenA back from vault",
+        );
+      });
+
+      it("should close vault account after refund", async () => {
+        const vaultAccount = await provider.connection.getAccountInfo(
+          refundVault,
+        );
+
+        assert.strictEqual(
+          vaultAccount,
+          null,
+          "Vault account should be closed after refund",
+        );
+      });
+
+      it("should verify maker tokenB balance is unchanged after refund", async () => {
+        const makerAtaForTokenBAccount = await getAccount(
+          provider.connection,
+          makerAtaForTokenB,
+        );
+
+        // maker received tokenB in take offer happy case (200 tokenB)
+        assert.strictEqual(
+          makerAtaForTokenBAccount.amount,
+          BigInt(200 * 10 ** 9),
+          "Maker tokenB balance should remain unchanged after refund",
+        );
+      });
+    });
 
     describe("failure cases", async () => {});
   });

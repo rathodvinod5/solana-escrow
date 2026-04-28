@@ -7,7 +7,7 @@ use anchor_spl::{
 
 use crate::{errors::EscrowError, states::EscrowOffer};
 
-pub fn refund_offer(ctx: Context<RefundOffer>) -> Result<()> {
+pub fn refund_offer(ctx: Context<RefundOffer>, id: u64) -> Result<()> {
     let maker = &ctx.accounts.maker;
     let token_mint_a = &ctx.accounts.token_mint_a;
     let maker_ata_for_token_a = &ctx.accounts.maker_ata_for_token_a;
@@ -20,6 +20,7 @@ pub fn refund_offer(ctx: Context<RefundOffer>) -> Result<()> {
     let signer_seeds: [&[&[u8]]; 1] = [&[
         b"offer",
         maker.to_account_info().key.as_ref(),
+        &id.to_le_bytes(), 
         &[escrow_offer.bump],
     ]];
 
@@ -88,7 +89,7 @@ pub struct RefundOffer<'info> {
         close = maker,
         has_one = maker @ EscrowError::InvalidMaker,
         has_one = token_mint_a @ EscrowError::InvalidTokenMintA,
-        seeds = [b"offfer", maker.key().as_ref(), &id.to_le_bytes()],
+        seeds = [b"offer", maker.key().as_ref(), &id.to_le_bytes()],
         bump = escrow_offer.bump
     )]
     pub escrow_offer: Account<'info, EscrowOffer>,

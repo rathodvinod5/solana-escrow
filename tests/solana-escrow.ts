@@ -907,9 +907,352 @@ describe("solana-escrow", () => {
   });
 
   describe("REFUND OFFER", async () => {
-    describe("happy cases", async () => {});
+    let refundEscrowOffer: PublicKey;
+    let refundVault: PublicKey;
+    let makerTokenABalanceBeforeRefund: bigint;
+    let vaultTokenABalanceBeforeRefund: bigint;
 
-    describe("failure cases", async () => {});
+    before(async () => {
+      // derive fresh PDA with id 20 for refund tests
+      const [refundEscrowOfferPda] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("offer"),
+          maker.publicKey.toBuffer(),
+          new anchor.BN(20).toArrayLike(Buffer, "le", 8),
+        ],
+        program.programId,
+      );
+      refundEscrowOffer = refundEscrowOfferPda;
+      refundVault = await getAssociatedTokenAddress(
+        tokenMintA,
+        refundEscrowOffer,
+        true,
+      );
+
+      // create a fresh offer with id 20
+      await program.methods
+        .makeOffer(
+          new anchor.BN(20),
+          new anchor.BN(100 * 10 ** 9), // 100 tokenA
+          new anchor.BN(200 * 10 ** 9), // 200 tokenB
+        )
+        .accounts({
+          maker: maker.publicKey,
+          tokenMintA,
+          tokenMintB,
+          makerAtaForTokenMintA: makerAtaForTokenA,
+          escrowOffer: refundEscrowOffer,
+          vault: refundVault,
+          tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+          systemProgram: anchor.web3.SystemProgram.programId,
+          associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
+        })
+        .signers([maker])
+        .rpc();
+
+      // capture balances before refund
+      const makerAtaForTokenAAccount = await getAccount(
+        provider.connection,
+        makerAtaForTokenA,
+      );
+      const vaultAccount = await getAccount(provider.connection, refundVault);
+
+      makerTokenABalanceBeforeRefund = makerAtaForTokenAAccount.amount;
+      vaultTokenABalanceBeforeRefund = vaultAccount.amount;
+    });
+
+    describe("happy cases", async () => {
+      it("should refund the escrow offer successfully", async () => {
+        await program.methods
+          .refundOffer(new anchor.BN(20))
+          .accounts({
+            maker: maker.publicKey,
+            tokenMintA,
+            makerAtaForTokenA,
+            vault: refundVault,
+            escrowOffer: refundEscrowOffer,
+            tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+            systemProgram: anchor.web3.SystemProgram.programId,
+            associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
+          })
+          .signers([maker])
+          .rpc();
+
+        // verify escrow offer account is closed
+        const refundEscrowOfferAccount =
+          await provider.connection.getAccountInfo(refundEscrowOffer);
+        assert.strictEqual(
+          refundEscrowOfferAccount,
+          null,
+          "Escrow offer account should be closed after refund",
+        );
+      });
+
+      it("should transfer tokenA from vault back to maker", async () => {
+        const makerAtaForTokenAAccount = await getAccount(
+          provider.connection,
+          makerAtaForTokenA,
+        );
+
+        assert.strictEqual(
+          makerAtaForTokenAAccount.amount,
+          makerTokenABalanceBeforeRefund + vaultTokenABalanceBeforeRefund,
+          "Maker should have received tokenA back from vault",
+        );
+      });
+
+      it("should close vault account after refund", async () => {
+        const vaultAccount = await provider.connection.getAccountInfo(
+          refundVault,
+        );
+
+        assert.strictEqual(
+          vaultAccount,
+          null,
+          "Vault account should be closed after refund",
+        );
+      });
+
+      it("should verify maker tokenB balance is unchanged after refund", async () => {
+        const makerAtaForTokenBAccount = await getAccount(
+          provider.connection,
+          makerAtaForTokenB,
+        );
+
+        // maker received tokenB in take offer happy case (200 tokenB)
+        assert.strictEqual(
+          makerAtaForTokenBAccount.amount,
+          BigInt(200 * 10 ** 9),
+          "Maker tokenB balance should remain unchanged after refund",
+        );
+      });
+    });
+
+    describe("failure cases", async () => {
+      let failureRefundEscrowOffer: PublicKey;
+      let failureRefundVault: PublicKey;
+
+      before(async () => {
+        // derive fresh PDA with id 30 for refund failure tests
+        const [failureRefundEscrowOfferPda] = PublicKey.findProgramAddressSync(
+          [
+            Buffer.from("offer"),
+            maker.publicKey.toBuffer(),
+            new anchor.BN(30).toArrayLike(Buffer, "le", 8),
+          ],
+          program.programId,
+        );
+        failureRefundEscrowOffer = failureRefundEscrowOfferPda;
+        failureRefundVault = await getAssociatedTokenAddress(
+          tokenMintA,
+          failureRefundEscrowOffer,
+          true,
+        );
+
+        // create a fresh offer with id 30
+        await program.methods
+          .makeOffer(
+            new anchor.BN(30),
+            new anchor.BN(100 * 10 ** 9), // 100 tokenA
+            new anchor.BN(200 * 10 ** 9), // 200 tokenB
+          )
+          .accounts({
+            maker: maker.publicKey,
+            tokenMintA,
+            tokenMintB,
+            makerAtaForTokenMintA: makerAtaForTokenA,
+            escrowOffer: failureRefundEscrowOffer,
+            vault: failureRefundVault,
+            tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+            systemProgram: anchor.web3.SystemProgram.programId,
+            associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
+          })
+          .signers([maker])
+          .rpc();
+      });
+
+      it("should fail when non maker tries to refund the offer", async () => {
+        try {
+          await program.methods
+            .refundOffer(new anchor.BN(30))
+            .accounts({
+              maker: taker.publicKey, // wrong - taker pretending to be maker
+              tokenMintA,
+              makerAtaForTokenA,
+              vault: failureRefundVault,
+              escrowOffer: failureRefundEscrowOffer,
+              tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+              systemProgram: anchor.web3.SystemProgram.programId,
+              associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
+            })
+            .signers([taker])
+            .rpc();
+
+          assert.fail("Should have thrown an error");
+        } catch (err: any) {
+          assert.ok(
+            err.message.includes("InvalidMaker") ||
+              err.message.includes("ConstraintHasOne") ||
+              err.message.includes("ConstraintSeeds") ||
+              err.message.includes("ConstraintAssociated") ||
+              err.message.includes("ConstraintTokenOwner") ||
+              err.message.includes("custom program error"),
+            "Error should be a constraint violation due to wrong maker",
+          );
+        }
+      });
+
+      it("should fail when wrong tokenMintA is provided", async () => {
+        try {
+          await program.methods
+            .refundOffer(new anchor.BN(30))
+            .accounts({
+              maker: maker.publicKey,
+              tokenMintA: tokenMintB, // wrong - passing tokenMintB as tokenMintA
+              makerAtaForTokenA,
+              vault: failureRefundVault,
+              escrowOffer: failureRefundEscrowOffer,
+              tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+              systemProgram: anchor.web3.SystemProgram.programId,
+              associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
+            })
+            .signers([maker])
+            .rpc();
+
+          assert.fail("Should have thrown an error");
+        } catch (err: any) {
+          assert.ok(
+            err.message.includes("InvalidTokenMintA") ||
+              err.message.includes("ConstraintHasOne") ||
+              err.message.includes("ConstraintAssociated") ||
+              err.message.includes("custom program error"),
+            "Error should be a constraint violation due to wrong tokenMintA",
+          );
+        }
+      });
+
+      it("should fail when wrong vault is provided", async () => {
+        // derive a different vault belonging to a different escrow offer
+        const [differentEscrowOffer] = PublicKey.findProgramAddressSync(
+          [
+            Buffer.from("offer"),
+            maker.publicKey.toBuffer(),
+            new anchor.BN(40).toArrayLike(Buffer, "le", 8),
+          ],
+          program.programId,
+        );
+        const differentVault = await getAssociatedTokenAddress(
+          tokenMintA,
+          differentEscrowOffer,
+          true,
+        );
+
+        try {
+          await program.methods
+            .refundOffer(new anchor.BN(30))
+            .accounts({
+              maker: maker.publicKey,
+              tokenMintA,
+              makerAtaForTokenA,
+              vault: differentVault, // wrong - vault from different escrow offer
+              escrowOffer: failureRefundEscrowOffer,
+              tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+              systemProgram: anchor.web3.SystemProgram.programId,
+              associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
+            })
+            .signers([maker])
+            .rpc();
+
+          assert.fail("Should have thrown an error");
+        } catch (err: any) {
+          assert.ok(
+            err.message.includes("ConstraintAssociated") ||
+              err.message.includes("AccountNotInitialized") ||
+              err.message.includes("custom program error"),
+            "Error should be a constraint violation due to wrong vault",
+          );
+        }
+      });
+
+      it("should fail when non maker tries to refund with their own ata", async () => {
+        // taker creates their own ata for tokenA
+        const takerAtaForTokenAAccount = await getAccount(
+          provider.connection,
+          takerAtaForTokenA,
+        );
+
+        try {
+          await program.methods
+            .refundOffer(new anchor.BN(30))
+            .accounts({
+              maker: taker.publicKey, // wrong maker
+              tokenMintA,
+              makerAtaForTokenA: takerAtaForTokenA, // taker's own ata
+              vault: failureRefundVault,
+              escrowOffer: failureRefundEscrowOffer,
+              tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+              systemProgram: anchor.web3.SystemProgram.programId,
+              associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
+            })
+            .signers([taker])
+            .rpc();
+
+          assert.fail("Should have thrown an error");
+        } catch (err: any) {
+          assert.ok(
+            err.message.includes("InvalidMaker") ||
+              err.message.includes("ConstraintHasOne") ||
+              err.message.includes("ConstraintSeeds") ||
+              err.message.includes("ConstraintAssociated") ||
+              err.message.includes("custom program error"),
+            "Error should be a constraint violation due to wrong maker and ata",
+          );
+        }
+      });
+
+      it("should fail when trying to refund an already refunded offer", async () => {
+        // offer id 20 was already refunded in happy cases
+        const [alreadyRefundedEscrowOffer] = PublicKey.findProgramAddressSync(
+          [
+            Buffer.from("offer"),
+            maker.publicKey.toBuffer(),
+            new anchor.BN(20).toArrayLike(Buffer, "le", 8),
+          ],
+          program.programId,
+        );
+        const alreadyRefundedVault = await getAssociatedTokenAddress(
+          tokenMintA,
+          alreadyRefundedEscrowOffer,
+          true,
+        );
+
+        try {
+          await program.methods
+            .refundOffer(new anchor.BN(20)) // id 20 already refunded
+            .accounts({
+              maker: maker.publicKey,
+              tokenMintA,
+              makerAtaForTokenA,
+              vault: alreadyRefundedVault,
+              escrowOffer: alreadyRefundedEscrowOffer,
+              tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+              systemProgram: anchor.web3.SystemProgram.programId,
+              associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
+            })
+            .signers([maker])
+            .rpc();
+
+          assert.fail("Should have thrown an error");
+        } catch (err: any) {
+          assert.ok(
+            err.message.includes("AccountNotInitialized") ||
+              err.message.includes("AccountOwnedByWrongProgram") ||
+              err.message.includes("custom program error"),
+            "Error should be account not initialized since offer was already refunded",
+          );
+        }
+      });
+    });
   });
 
   describe("OTHER EDGE CASES", async () => {});

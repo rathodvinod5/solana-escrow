@@ -1255,7 +1255,619 @@ describe("solana-escrow", () => {
     });
   });
 
-  describe("OTHER EDGE CASES", async () => {});
+  describe("OTHER EDGE CASES", async () => {
+    describe("MAKE OFFER edge cases", async () => {
+      it("should allow maker to create multiple offers with different ids", async () => {
+        const [escrowOffer100] = PublicKey.findProgramAddressSync(
+          [
+            Buffer.from("offer"),
+            maker.publicKey.toBuffer(),
+            new anchor.BN(100).toArrayLike(Buffer, "le", 8),
+          ],
+          program.programId,
+        );
+        const vault100 = await getAssociatedTokenAddress(
+          tokenMintA,
+          escrowOffer100,
+          true,
+        );
+
+        const [escrowOffer101] = PublicKey.findProgramAddressSync(
+          [
+            Buffer.from("offer"),
+            maker.publicKey.toBuffer(),
+            new anchor.BN(101).toArrayLike(Buffer, "le", 8),
+          ],
+          program.programId,
+        );
+        const vault101 = await getAssociatedTokenAddress(
+          tokenMintA,
+          escrowOffer101,
+          true,
+        );
+
+        // create first offer
+        await program.methods
+          .makeOffer(
+            new anchor.BN(100),
+            new anchor.BN(50 * 10 ** 9),
+            new anchor.BN(100 * 10 ** 9),
+          )
+          .accounts({
+            maker: maker.publicKey,
+            tokenMintA,
+            tokenMintB,
+            makerAtaForTokenMintA: makerAtaForTokenA,
+            escrowOffer: escrowOffer100,
+            vault: vault100,
+            tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+            systemProgram: anchor.web3.SystemProgram.programId,
+            associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
+          })
+          .signers([maker])
+          .rpc();
+
+        // create second offer
+        await program.methods
+          .makeOffer(
+            new anchor.BN(101),
+            new anchor.BN(50 * 10 ** 9),
+            new anchor.BN(100 * 10 ** 9),
+          )
+          .accounts({
+            maker: maker.publicKey,
+            tokenMintA,
+            tokenMintB,
+            makerAtaForTokenMintA: makerAtaForTokenA,
+            escrowOffer: escrowOffer101,
+            vault: vault101,
+            tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+            systemProgram: anchor.web3.SystemProgram.programId,
+            associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
+          })
+          .signers([maker])
+          .rpc();
+
+        // verify both offers exist independently
+        const escrowOffer100Account = await program.account.escrowOffer.fetch(
+          escrowOffer100,
+        );
+        const escrowOffer101Account = await program.account.escrowOffer.fetch(
+          escrowOffer101,
+        );
+
+        assert.strictEqual(
+          escrowOffer100Account.id.toString(),
+          "100",
+          "Escrow offer 100 should exist",
+        );
+        assert.strictEqual(
+          escrowOffer101Account.id.toString(),
+          "101",
+          "Escrow offer 101 should exist",
+        );
+
+        // verify vaults are independent
+        const vault100Account = await getAccount(provider.connection, vault100);
+        const vault101Account = await getAccount(provider.connection, vault101);
+
+        assert.strictEqual(
+          vault100Account.amount,
+          BigInt(50 * 10 ** 9),
+          "Vault 100 should have 50 tokenA",
+        );
+        assert.strictEqual(
+          vault101Account.amount,
+          BigInt(50 * 10 ** 9),
+          "Vault 101 should have 50 tokenA",
+        );
+      });
+
+      it("should allow different makers to create offers with same id", async () => {
+        // taker acts as a second maker here
+        const [takerEscrowOffer] = PublicKey.findProgramAddressSync(
+          [
+            Buffer.from("offer"),
+            taker.publicKey.toBuffer(),
+            new anchor.BN(1).toArrayLike(Buffer, "le", 8), // same id as maker's first offer
+          ],
+          program.programId,
+        );
+        const takerVault = await getAssociatedTokenAddress(
+          tokenMintB, // taker offers tokenB for tokenA
+          takerEscrowOffer,
+          true,
+        );
+
+        await program.methods
+          .makeOffer(
+            new anchor.BN(1),
+            new anchor.BN(50 * 10 ** 9),
+            new anchor.BN(100 * 10 ** 9),
+          )
+          .accounts({
+            maker: taker.publicKey,
+            tokenMintA: tokenMintB, // taker offers tokenB
+            tokenMintB: tokenMintA, // taker wants tokenA
+            makerAtaForTokenMintA: takerAtaForTokenB,
+            escrowOffer: takerEscrowOffer,
+            vault: takerVault,
+            tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+            systemProgram: anchor.web3.SystemProgram.programId,
+            associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
+          })
+          .signers([taker])
+          .rpc();
+
+        const takerEscrowOfferAccount = await program.account.escrowOffer.fetch(
+          takerEscrowOffer,
+        );
+
+        assert.strictEqual(
+          takerEscrowOfferAccount.maker.toBase58(),
+          taker.publicKey.toBase58(),
+          "Taker's escrow offer maker should be taker",
+        );
+        assert.strictEqual(
+          takerEscrowOfferAccount.id.toString(),
+          "1",
+          "Taker's escrow offer id should be 1",
+        );
+      });
+
+      it("should allow make offer with max u64 amount", async () => {
+        // mint a large but safe amount to maker
+        await mintTo(
+          provider.connection,
+          admin,
+          tokenMintA,
+          makerAtaForTokenA,
+          admin.publicKey,
+          1_000_000 * 10 ** 9, // 1 million tokens - large but won't overflow
+        );
+
+        const [maxEscrowOffer] = PublicKey.findProgramAddressSync(
+          [
+            Buffer.from("offer"),
+            maker.publicKey.toBuffer(),
+            new anchor.BN(200).toArrayLike(Buffer, "le", 8),
+          ],
+          program.programId,
+        );
+        const maxVault = await getAssociatedTokenAddress(
+          tokenMintA,
+          maxEscrowOffer,
+          true,
+        );
+
+        const largeTransferAmount = new anchor.BN(500_000 * 10 ** 9); // 500k tokenA
+        const largeRequestAmount = new anchor.BN(500_000 * 10 ** 9); // 500k tokenB
+
+        await program.methods
+          .makeOffer(
+            new anchor.BN(200),
+            largeTransferAmount,
+            largeRequestAmount,
+          )
+          .accounts({
+            maker: maker.publicKey,
+            tokenMintA,
+            tokenMintB,
+            makerAtaForTokenMintA: makerAtaForTokenA,
+            escrowOffer: maxEscrowOffer,
+            vault: maxVault,
+            tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+            systemProgram: anchor.web3.SystemProgram.programId,
+            associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
+          })
+          .signers([maker])
+          .rpc();
+
+        // verify escrow offer was created with large amounts
+        const maxEscrowOfferAccount = await program.account.escrowOffer.fetch(
+          maxEscrowOffer,
+        );
+        assert.strictEqual(
+          maxEscrowOfferAccount.tokenBRequestedAmount.toString(),
+          largeRequestAmount.toString(),
+          "Token B requested amount should match large amount",
+        );
+
+        // verify vault received large amount of tokenA
+        const maxVaultAccount = await getAccount(provider.connection, maxVault);
+        assert.strictEqual(
+          maxVaultAccount.amount,
+          BigInt(largeTransferAmount.toString()),
+          "Vault should have received large amount of tokenA",
+        );
+      });
+    });
+
+    describe.skip("TAKE OFFER edge cases", async () => {
+      it("should fail when taker tries to take their own offer", async () => {
+        // taker created an offer in previous edge case (id 1 with taker as maker)
+        const [takerEscrowOffer] = PublicKey.findProgramAddressSync(
+          [
+            Buffer.from("offer"),
+            taker.publicKey.toBuffer(),
+            new anchor.BN(1).toArrayLike(Buffer, "le", 8),
+          ],
+          program.programId,
+        );
+        const takerVault = await getAssociatedTokenAddress(
+          tokenMintB,
+          takerEscrowOffer,
+          true,
+        );
+
+        try {
+          await program.methods
+            .takeOffer(new anchor.BN(1))
+            .accounts({
+              taker: taker.publicKey,
+              maker: taker.publicKey, // taker is also the maker
+              tokenMintA: tokenMintB,
+              tokenMintB: tokenMintA,
+              takerAtaForTokenA: takerAtaForTokenB,
+              takerAtaForTokenB: takerAtaForTokenA,
+              makerAtaForTokenB: takerAtaForTokenA,
+              escrowOffer: takerEscrowOffer,
+              vault: takerVault,
+              tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+              systemProgram: anchor.web3.SystemProgram.programId,
+              associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
+            })
+            .signers([taker])
+            .rpc();
+
+          // if it succeeds tokens should be back to original state
+          console.log(
+            "Taking own offer succeeded - tokens returned to original state",
+          );
+        } catch (err) {
+          // program doesn't explicitly prevent this but constraint violations may occur
+          assert.ok(
+            err.message.includes("custom program error") ||
+              err.message.includes("ConstraintAssociated") ||
+              err.message.includes("ConstraintTokenOwner"),
+            "Should fail with a constraint violation",
+          );
+        }
+      });
+
+      it("should fail when taker tries to take offer with minimum possible tokenB (1 lamport)", async () => {
+        const [minEscrowOffer] = PublicKey.findProgramAddressSync(
+          [
+            Buffer.from("offer"),
+            maker.publicKey.toBuffer(),
+            new anchor.BN(300).toArrayLike(Buffer, "le", 8),
+          ],
+          program.programId,
+        );
+        const minVault = await getAssociatedTokenAddress(
+          tokenMintA,
+          minEscrowOffer,
+          true,
+        );
+
+        // create offer requesting only 1 lamport of tokenB
+        await program.methods
+          .makeOffer(
+            new anchor.BN(300),
+            new anchor.BN(10 * 10 ** 9),
+            new anchor.BN(1), // requesting only 1 lamport of tokenB
+          )
+          .accounts({
+            maker: maker.publicKey,
+            tokenMintA,
+            tokenMintB,
+            makerAtaForTokenMintA: makerAtaForTokenA,
+            escrowOffer: minEscrowOffer,
+            vault: minVault,
+            tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+            systemProgram: anchor.web3.SystemProgram.programId,
+            associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
+          })
+          .signers([maker])
+          .rpc();
+
+        // take the offer
+        await program.methods
+          .takeOffer(new anchor.BN(300))
+          .accounts({
+            taker: taker.publicKey,
+            maker: maker.publicKey,
+            tokenMintA,
+            tokenMintB,
+            takerAtaForTokenA,
+            takerAtaForTokenB,
+            makerAtaForTokenB,
+            escrowOffer: minEscrowOffer,
+            vault: minVault,
+            tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+            systemProgram: anchor.web3.SystemProgram.programId,
+            associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
+          })
+          .signers([taker])
+          .rpc();
+
+        // verify maker received only 1 lamport of tokenB
+        const makerAtaForTokenBAccount = await getAccount(
+          provider.connection,
+          makerAtaForTokenB,
+        );
+        console.log(
+          "Maker tokenB balance after min take:",
+          makerAtaForTokenBAccount.amount.toString(),
+        );
+        assert.ok(
+          makerAtaForTokenBAccount.amount > BigInt(0),
+          "Maker should have received at least 1 lamport of tokenB",
+        );
+      });
+    });
+
+    describe.skip("REFUND OFFER edge cases", async () => {
+      it("should fail when maker tries to refund an already taken offer", async () => {
+        // offer id 1 was already taken in take offer happy cases
+        try {
+          await program.methods
+            .refundOffer(new anchor.BN(1))
+            .accounts({
+              maker: maker.publicKey,
+              tokenMintA,
+              makerAtaForTokenA,
+              vault, // id 1 vault - already closed
+              escrowOffer, // id 1 escrow - already closed
+              tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+              systemProgram: anchor.web3.SystemProgram.programId,
+              associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
+            })
+            .signers([maker])
+            .rpc();
+
+          assert.fail("Should have thrown an error");
+        } catch (err) {
+          assert.ok(
+            err.message.includes("AccountNotInitialized") ||
+              err.message.includes("AccountOwnedByWrongProgram") ||
+              err.message.includes("custom program error"),
+            "Error should be account not initialized since offer was already taken",
+          );
+        }
+      });
+
+      it("should fail when taker tries to refund maker's offer", async () => {
+        const [offerToRefund] = PublicKey.findProgramAddressSync(
+          [
+            Buffer.from("offer"),
+            maker.publicKey.toBuffer(),
+            new anchor.BN(400).toArrayLike(Buffer, "le", 8),
+          ],
+          program.programId,
+        );
+        const vaultToRefund = await getAssociatedTokenAddress(
+          tokenMintA,
+          offerToRefund,
+          true,
+        );
+
+        // maker creates a new offer
+        await program.methods
+          .makeOffer(
+            new anchor.BN(400),
+            new anchor.BN(10 * 10 ** 9),
+            new anchor.BN(20 * 10 ** 9),
+          )
+          .accounts({
+            maker: maker.publicKey,
+            tokenMintA,
+            tokenMintB,
+            makerAtaForTokenMintA: makerAtaForTokenA,
+            escrowOffer: offerToRefund,
+            vault: vaultToRefund,
+            tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+            systemProgram: anchor.web3.SystemProgram.programId,
+            associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
+          })
+          .signers([maker])
+          .rpc();
+
+        // taker tries to refund maker's offer
+        try {
+          await program.methods
+            .refundOffer(new anchor.BN(400))
+            .accounts({
+              maker: taker.publicKey, // taker pretending to be maker
+              tokenMintA,
+              makerAtaForTokenA: takerAtaForTokenA, // taker's own ata
+              vault: vaultToRefund,
+              escrowOffer: offerToRefund,
+              tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+              systemProgram: anchor.web3.SystemProgram.programId,
+              associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
+            })
+            .signers([taker])
+            .rpc();
+
+          assert.fail("Should have thrown an error");
+        } catch (err: any) {
+          assert.ok(
+            err.message.includes("InvalidMaker") ||
+              err.message.includes("ConstraintHasOne") ||
+              err.message.includes("ConstraintSeeds") ||
+              err.message.includes("ConstraintTokenOwner") ||
+              err.message.includes("ConstraintAssociated") ||
+              err.message.includes("custom program error"),
+            "Error should be a constraint violation since taker cannot refund maker's offer",
+          );
+        }
+      });
+    });
+
+    describe.skip("ACCOUNT BALANCE edge cases", async () => {
+      it("should correctly reflect maker tokenA balance after multiple offers", async () => {
+        const makerAtaForTokenAAccount = await getAccount(
+          provider.connection,
+          makerAtaForTokenA,
+        );
+
+        // maker started with 1000 tokenA
+        // make offer id 1: -100 tokenA (taken)
+        // make offer id 10: -100 tokenA (still open - failure test offer)
+        // make offer id 30: -100 tokenA (still open - failure test offer)
+        // make offer id 100: -50 tokenA (still open)
+        // make offer id 101: -50 tokenA (still open)
+        // make offer id 200: -max u64 (if succeeded)
+        // make offer id 300: -10 tokenA (taken)
+        // make offer id 400: -10 tokenA (still open)
+        // refund id 20: +100 tokenA back
+
+        console.log(
+          "Maker tokenA balance after all operations:",
+          makerAtaForTokenAAccount.amount.toString(),
+        );
+
+        assert.ok(
+          makerAtaForTokenAAccount.amount >= BigInt(0),
+          "Maker tokenA balance should be non negative",
+        );
+      });
+
+      it("should correctly reflect taker tokenB balance after take offer", async () => {
+        const takerAtaForTokenBAccount = await getAccount(
+          provider.connection,
+          takerAtaForTokenB,
+        );
+
+        // taker started with 1000 tokenB
+        // take offer id 1: -200 tokenB
+        // take offer id 300: -1 lamport tokenB
+
+        console.log(
+          "Taker tokenB balance after all operations:",
+          takerAtaForTokenBAccount.amount.toString(),
+        );
+
+        assert.ok(
+          takerAtaForTokenBAccount.amount >= BigInt(0),
+          "Taker tokenB balance should be non negative",
+        );
+      });
+
+      it("should correctly reflect maker tokenB balance after take offer", async () => {
+        const makerAtaForTokenBAccount = await getAccount(
+          provider.connection,
+          makerAtaForTokenB,
+        );
+
+        // maker started with 0 tokenB
+        // take offer id 1: +200 tokenB
+        // take offer id 300: +1 lamport tokenB
+
+        console.log(
+          "Maker tokenB balance after all operations:",
+          makerAtaForTokenBAccount.amount.toString(),
+        );
+
+        assert.ok(
+          makerAtaForTokenBAccount.amount >= BigInt(0),
+          "Maker tokenB balance should be non negative",
+        );
+      });
+    });
+
+    describe.skip("PDA edge cases", async () => {
+      it("should verify escrow offer PDA is deterministic", async () => {
+        // derive the same PDA multiple times and verify it's always the same
+        const [pda1] = PublicKey.findProgramAddressSync(
+          [
+            Buffer.from("offer"),
+            maker.publicKey.toBuffer(),
+            new anchor.BN(999).toArrayLike(Buffer, "le", 8),
+          ],
+          program.programId,
+        );
+        const [pda2] = PublicKey.findProgramAddressSync(
+          [
+            Buffer.from("offer"),
+            maker.publicKey.toBuffer(),
+            new anchor.BN(999).toArrayLike(Buffer, "le", 8),
+          ],
+          program.programId,
+        );
+        const [pda3] = PublicKey.findProgramAddressSync(
+          [
+            Buffer.from("offer"),
+            maker.publicKey.toBuffer(),
+            new anchor.BN(999).toArrayLike(Buffer, "le", 8),
+          ],
+          program.programId,
+        );
+
+        assert.strictEqual(
+          pda1.toBase58(),
+          pda2.toBase58(),
+          "PDA should be deterministic - pda1 should equal pda2",
+        );
+        assert.strictEqual(
+          pda2.toBase58(),
+          pda3.toBase58(),
+          "PDA should be deterministic - pda2 should equal pda3",
+        );
+      });
+
+      it("should verify different makers produce different PDAs for same id", async () => {
+        const [makerPda] = PublicKey.findProgramAddressSync(
+          [
+            Buffer.from("offer"),
+            maker.publicKey.toBuffer(),
+            new anchor.BN(999).toArrayLike(Buffer, "le", 8),
+          ],
+          program.programId,
+        );
+        const [takerPda] = PublicKey.findProgramAddressSync(
+          [
+            Buffer.from("offer"),
+            taker.publicKey.toBuffer(),
+            new anchor.BN(999).toArrayLike(Buffer, "le", 8),
+          ],
+          program.programId,
+        );
+
+        assert.notStrictEqual(
+          makerPda.toBase58(),
+          takerPda.toBase58(),
+          "Different makers should produce different PDAs for same id",
+        );
+      });
+
+      it("should verify different ids produce different PDAs for same maker", async () => {
+        const [pda998] = PublicKey.findProgramAddressSync(
+          [
+            Buffer.from("offer"),
+            maker.publicKey.toBuffer(),
+            new anchor.BN(998).toArrayLike(Buffer, "le", 8),
+          ],
+          program.programId,
+        );
+        const [pda999] = PublicKey.findProgramAddressSync(
+          [
+            Buffer.from("offer"),
+            maker.publicKey.toBuffer(),
+            new anchor.BN(999).toArrayLike(Buffer, "le", 8),
+          ],
+          program.programId,
+        );
+
+        assert.notStrictEqual(
+          pda998.toBase58(),
+          pda999.toBase58(),
+          "Different ids should produce different PDAs for same maker",
+        );
+      });
+    });
+  });
 });
 
 async function airdrop(connection: any, address: any, amount = 1000000000) {

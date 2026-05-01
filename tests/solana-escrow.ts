@@ -1705,7 +1705,7 @@ describe("solana-escrow", () => {
       });
     });
 
-    describe.skip("ACCOUNT BALANCE edge cases", async () => {
+    describe("ACCOUNT BALANCE edge cases", async () => {
       it("should correctly reflect maker tokenA balance after multiple offers", async () => {
         const makerAtaForTokenAAccount = await getAccount(
           provider.connection,
@@ -1723,10 +1723,10 @@ describe("solana-escrow", () => {
         // make offer id 400: -10 tokenA (still open)
         // refund id 20: +100 tokenA back
 
-        console.log(
-          "Maker tokenA balance after all operations:",
-          makerAtaForTokenAAccount.amount.toString(),
-        );
+        // console.log(
+        //   "Maker tokenA balance after all operations:",
+        //   makerAtaForTokenAAccount.amount.toString(),
+        // );
 
         assert.ok(
           makerAtaForTokenAAccount.amount >= BigInt(0),
@@ -1744,10 +1744,10 @@ describe("solana-escrow", () => {
         // take offer id 1: -200 tokenB
         // take offer id 300: -1 lamport tokenB
 
-        console.log(
-          "Taker tokenB balance after all operations:",
-          takerAtaForTokenBAccount.amount.toString(),
-        );
+        // console.log(
+        //   "Taker tokenB balance after all operations:",
+        //   takerAtaForTokenBAccount.amount.toString(),
+        // );
 
         assert.ok(
           takerAtaForTokenBAccount.amount >= BigInt(0),
@@ -1765,10 +1765,10 @@ describe("solana-escrow", () => {
         // take offer id 1: +200 tokenB
         // take offer id 300: +1 lamport tokenB
 
-        console.log(
-          "Maker tokenB balance after all operations:",
-          makerAtaForTokenBAccount.amount.toString(),
-        );
+        // console.log(
+        //   "Maker tokenB balance after all operations:",
+        //   makerAtaForTokenBAccount.amount.toString(),
+        // );
 
         assert.ok(
           makerAtaForTokenBAccount.amount >= BigInt(0),
@@ -1777,7 +1777,7 @@ describe("solana-escrow", () => {
       });
     });
 
-    describe.skip("PDA edge cases", async () => {
+    describe("PDA edge cases", async () => {
       it("should verify escrow offer PDA is deterministic", async () => {
         // derive the same PDA multiple times and verify it's always the same
         const [pda1] = PublicKey.findProgramAddressSync(

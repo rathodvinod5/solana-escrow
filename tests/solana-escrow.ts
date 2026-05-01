@@ -1596,10 +1596,7 @@ describe("solana-escrow", () => {
           provider.connection,
           makerAtaForTokenB,
         );
-        // console.log(
-        //   "Maker tokenB balance after min take:",
-        //   makerAtaForTokenBAccount.amount.toString(),
-        // );
+
         assert.ok(
           makerAtaForTokenBAccount.amount > BigInt(0),
           "Maker should have received at least 1 lamport of tokenB",
@@ -1627,7 +1624,7 @@ describe("solana-escrow", () => {
             .rpc();
 
           assert.fail("Should have thrown an error");
-        } catch (err) {
+        } catch (err: any) {
           assert.ok(
             err.message.includes("AccountNotInitialized") ||
               err.message.includes("AccountOwnedByWrongProgram") ||
@@ -1723,11 +1720,6 @@ describe("solana-escrow", () => {
         // make offer id 400: -10 tokenA (still open)
         // refund id 20: +100 tokenA back
 
-        // console.log(
-        //   "Maker tokenA balance after all operations:",
-        //   makerAtaForTokenAAccount.amount.toString(),
-        // );
-
         assert.ok(
           makerAtaForTokenAAccount.amount >= BigInt(0),
           "Maker tokenA balance should be non negative",
@@ -1744,11 +1736,6 @@ describe("solana-escrow", () => {
         // take offer id 1: -200 tokenB
         // take offer id 300: -1 lamport tokenB
 
-        // console.log(
-        //   "Taker tokenB balance after all operations:",
-        //   takerAtaForTokenBAccount.amount.toString(),
-        // );
-
         assert.ok(
           takerAtaForTokenBAccount.amount >= BigInt(0),
           "Taker tokenB balance should be non negative",
@@ -1764,11 +1751,6 @@ describe("solana-escrow", () => {
         // maker started with 0 tokenB
         // take offer id 1: +200 tokenB
         // take offer id 300: +1 lamport tokenB
-
-        // console.log(
-        //   "Maker tokenB balance after all operations:",
-        //   makerAtaForTokenBAccount.amount.toString(),
-        // );
 
         assert.ok(
           makerAtaForTokenBAccount.amount >= BigInt(0),

@@ -1483,7 +1483,7 @@ describe("solana-escrow", () => {
       });
     });
 
-    describe.skip("TAKE OFFER edge cases", async () => {
+    describe("TAKE OFFER edge cases", async () => {
       it("should fail when taker tries to take their own offer", async () => {
         // taker created an offer in previous edge case (id 1 with taker as maker)
         const [takerEscrowOffer] = PublicKey.findProgramAddressSync(
@@ -1520,11 +1520,11 @@ describe("solana-escrow", () => {
             .signers([taker])
             .rpc();
 
-          // if it succeeds tokens should be back to original state
-          console.log(
-            "Taking own offer succeeded - tokens returned to original state",
-          );
-        } catch (err) {
+          // // if it succeeds tokens should be back to original state
+          // console.log(
+          //   "Taking own offer succeeded - tokens returned to original state",
+          // );
+        } catch (err: any) {
           // program doesn't explicitly prevent this but constraint violations may occur
           assert.ok(
             err.message.includes("custom program error") ||
@@ -1596,10 +1596,10 @@ describe("solana-escrow", () => {
           provider.connection,
           makerAtaForTokenB,
         );
-        console.log(
-          "Maker tokenB balance after min take:",
-          makerAtaForTokenBAccount.amount.toString(),
-        );
+        // console.log(
+        //   "Maker tokenB balance after min take:",
+        //   makerAtaForTokenBAccount.amount.toString(),
+        // );
         assert.ok(
           makerAtaForTokenBAccount.amount > BigInt(0),
           "Maker should have received at least 1 lamport of tokenB",
@@ -1607,7 +1607,7 @@ describe("solana-escrow", () => {
       });
     });
 
-    describe.skip("REFUND OFFER edge cases", async () => {
+    describe("REFUND OFFER edge cases", async () => {
       it("should fail when maker tries to refund an already taken offer", async () => {
         // offer id 1 was already taken in take offer happy cases
         try {
